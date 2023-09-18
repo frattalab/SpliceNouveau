@@ -277,8 +277,9 @@ def get_args():
         polypyrimidine rich region")
 	parser.add_argument("--track_splice_scores", action="store_true", default=False,
 	                    help="Write out splice scores each time it improves")
-	parser.add_argument("--n_seqs_per_it", type=int, help="How many sequences to try in parallel per iteration",
-	                    default=64)
+	parser.add_argument("--n_seqs_per_it", type=int, help="How many sequences to try in parallel per iteration; "
+	                                                      "higher numbers will help reduce mutational load",
+	                    default=16)
 
 	args = parser.parse_args()
 
