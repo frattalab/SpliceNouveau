@@ -521,7 +521,7 @@ def main():
 			all_scores = {}
 			for seq_no in range(args.n_seqs_per_it):
 				acceptor_prob = acceptor_probs[seq_no, :]
-				donor_prob = donor_probs[seq_no, :]  # TODO dims may be wrong
+				donor_prob = donor_probs[seq_no, :]
 
 				if not args.one_intron:  # two introns...
 					const_donor = donor_prob[intron1_start - 1]
@@ -609,12 +609,12 @@ def main():
 			score = all_scores[best_seq_no]
 			new_combined_seq = new_seqs_ds[best_seq_no]["seq"]
 
-
-			# print(' '.join([str(const_donor), str(ce_acceptor), str(ce_donor), str(const_acceptor), str(bad_acc), str(bad_don)]))
+			this_best_acceptor_prob = acceptor_probs[best_seq_no, :]  # note this is the probs across whole sequence
+			this_best_donor_prob = donor_probs[best_seq_no, :]
 
 			if i == 0 and args.track_splice_scores:
 				print("writing")
-				write_to_tracker(attempt, i, acceptor_prob, donor_prob, score, new_combined_seq,
+				write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
 				                 splice_score_tracker_filename)
 
 			if score > best_score + args.min_improvement:
@@ -631,8 +631,8 @@ def main():
 					                 splice_score_tracker_filename)
 				best_score = score
 				best_seq = new_combined_seq
-				best_donor_prob = donor_prob  # TODO FIX
-				best_acceptor_prob = acceptor_prob # TODO FIX
+				best_donor_prob = this_best_donor_prob
+				best_acceptor_prob = this_best_acceptor_prob
 				bored = 0
 				print(score)
 				if args.alt_5p:
