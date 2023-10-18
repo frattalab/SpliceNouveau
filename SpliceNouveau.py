@@ -627,7 +627,7 @@ def main():
 
 
 				if i > 0 and args.track_splice_scores:
-					write_to_tracker(attempt, i, acceptor_prob, donor_prob, score, new_combined_seq,
+					write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
 					                 splice_score_tracker_filename)
 				best_score = score
 				best_seq = new_combined_seq
