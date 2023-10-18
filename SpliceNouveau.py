@@ -23,8 +23,7 @@ if load_tf:
 	paths = ('models/spliceai{}.h5'.format(x) for x in range(1, 6))
 	models = [load_model(resource_filename('spliceai', x)) for x in paths]
 
-
-	def get_probs(input_sequences):
+	def get_probs_one_context(input_sequences):
 
 		context = 10000
 
@@ -43,11 +42,41 @@ if load_tf:
 		donor_prob = y[:, :, 2]
 
 		return acceptor_prob, donor_prob
+
+	def get_probs(input_sequences, context_seqs, good_contexts):
+		"""
+		The purpose of this function is to attach different contextual sequences to each input sequence, then
+		take the average score. The contextual sequences used here were found to provide a good generalisation
+		in testing during SpliceNouveau development.
+		"""
+		for index, row in good_contexts.iterrows():
+			context = row['context']  # length of context
+			seq_no = row['seq_no']  # context sequence
+
+			upstream_context = context_seqs[seq_no][5000 - context // 2:5000 + context // 2]
+			downstream_context = context_seqs[seq_no + 1][5000 - context // 2:5000 + context // 2]
+
+			seqs_with_context = [upstream_context + s + downstream_context for s in input_sequences]
+
+			acceptor_prob, donor_prob = get_probs_one_context(seqs_with_context)
+
+			# Trim predictions from added context
+			if index == 0:
+				mean_acceptor_prob = acceptor_prob[:, len(upstream_context):-len(downstream_context)] / len(
+					good_contexts)
+				mean_donor_prob = donor_prob[:, len(upstream_context):-len(downstream_context)] / len(good_contexts)
+			else:
+				mean_acceptor_prob += acceptor_prob[:, len(upstream_context):-len(downstream_context)] / len(
+					good_contexts)
+				mean_donor_prob += donor_prob[:, len(upstream_context):-len(downstream_context)] / len(good_contexts)
+
+		return mean_acceptor_prob, mean_donor_prob
+
 else:
 	print("NOT LOADING TENSOR FLOW! THIS IS JUST FOR TESTS")
 
 
-	def get_probs(input_sequence):
+	def get_probs(input_sequence, context_seqs, good_contexts):
 		return [0] * len(input_sequence), [0] * len(input_sequence)
 
 
@@ -280,6 +309,7 @@ def get_args():
 	parser.add_argument("--n_seqs_per_it", type=int, help="How many sequences to try in parallel per iteration; "
 	                                                      "higher numbers will help reduce mutational load",
 	                    default=16)
+	parser.add_argument("--context_dir", default="data/", help="location ")
 
 	args = parser.parse_args()
 
@@ -401,6 +431,14 @@ def main():
 	print("Reading arguments")
 	args = get_args()
 
+	# Read in context data
+	context_seqs = []
+	with open(args.context_dir + "20_good_contexts.csv") as file:
+		for line in file:
+			context_seqs.append(line.rstrip())
+
+	good_contexts = pd.read_csv(args.context_dir + "6_good_conditions.csv")
+
 	# Find which positions can be mutated
 	to_mut_intron1 = [i for i, a in enumerate(list(args.initial_intron1)) if a.islower() or a.upper() in ["Y", "N"]]
 	to_mut_intron2 = [i for i, a in enumerate(list(args.initial_intron2)) if a.islower() or a.upper() in ["Y", "N"]]
@@ -477,7 +515,7 @@ def main():
 
 				new_seqs_ds.append({"seq": new_combined_seq, "separate_parts_d": separate_parts_d})
 
-			acceptor_probs, donor_probs = get_probs([a["seq"] for a in new_seqs_ds])
+			acceptor_probs, donor_probs = get_probs([a["seq"] for a in new_seqs_ds], good_contexts=good_contexts, context_seqs=context_seqs)
 
 			# Is it good??
 			all_scores = {}
