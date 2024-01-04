@@ -43,34 +43,39 @@ if load_tf:
 
 		return acceptor_prob, donor_prob
 
-	def get_probs(input_sequences, context_seqs, good_contexts):
+	def get_probs(input_sequences, context_seqs, good_contexts, dont_use_contexts=False):
 		"""
 		The purpose of this function is to attach different contextual sequences to each input sequence, then
 		take the average score. The contextual sequences used here were found to provide a good generalisation
 		in testing during SpliceNouveau development.
 		"""
-		for index, row in good_contexts.iterrows():
-			context = row['context']  # length of context
-			seq_no = row['seq_no']  # context sequence
+		if dont_use_contexts:
+			acceptor_prob, donor_prob = get_probs_one_context(input_sequences)
+			return acceptor_prob, donor_prob
+		else:
+			for index, row in good_contexts.iterrows():
+				context = row['context']  # length of context
+				seq_no = row['seq_no']  # context sequence
 
-			upstream_context = context_seqs[seq_no][5000 - context // 2:5000 + context // 2]
-			downstream_context = context_seqs[seq_no + 1][5000 - context // 2:5000 + context // 2]
+				upstream_context = context_seqs[seq_no][5000 - context // 2:5000 + context // 2]
+				downstream_context = context_seqs[seq_no + 1][5000 - context // 2:5000 + context // 2]
 
-			seqs_with_context = [upstream_context + s + downstream_context for s in input_sequences]
+				seqs_with_context = [upstream_context + s + downstream_context for s in input_sequences]
 
-			acceptor_prob, donor_prob = get_probs_one_context(seqs_with_context)
+				acceptor_prob, donor_prob = get_probs_one_context(seqs_with_context)
 
-			# Trim predictions from added context
-			if index == 0:
-				mean_acceptor_prob = acceptor_prob[:, len(upstream_context):-len(downstream_context)] / len(
-					good_contexts)
-				mean_donor_prob = donor_prob[:, len(upstream_context):-len(downstream_context)] / len(good_contexts)
-			else:
-				mean_acceptor_prob += acceptor_prob[:, len(upstream_context):-len(downstream_context)] / len(
-					good_contexts)
-				mean_donor_prob += donor_prob[:, len(upstream_context):-len(downstream_context)] / len(good_contexts)
+				# Trim predictions from added context
+				if index == 0:
+					mean_acceptor_prob = acceptor_prob[:, len(upstream_context):-len(downstream_context)] / len(
+						good_contexts)
+					mean_donor_prob = donor_prob[:, len(upstream_context):-len(downstream_context)] / len(good_contexts)
+				else:
+					mean_acceptor_prob += acceptor_prob[:, len(upstream_context):-len(downstream_context)] / len(
+						good_contexts)
+					mean_donor_prob += donor_prob[:, len(upstream_context):-len(downstream_context)] / len(good_contexts)
 
-		return mean_acceptor_prob, mean_donor_prob
+			return mean_acceptor_prob, mean_donor_prob
+
 
 else:
 	print("NOT LOADING TENSOR FLOW! THIS IS JUST FOR TESTS")
@@ -310,6 +315,14 @@ def get_args():
 	                                                      "higher numbers will help reduce mutational load",
 	                    default=16)
 	parser.add_argument("--context_dir", default="data/", help="location ")
+	parser.add_argument('--dont_use_contexts', default=False, action='store_true', help='Use this command '
+																						'to avoid using the additional '
+																						'contextual flanking sequences'
+																						' i.e. behave like the original '
+																						'versions of SpliceNouveau.')
+	parser.add_argument('--three_p_but_no_pptness', default=False, action='store_true',
+						help='By default, when using alt 3prime mode, it generates a pyrmidine-rich coding sequence. '
+							 'Use this flag to turn off this behaviour.')
 
 	args = parser.parse_args()
 
@@ -488,10 +501,16 @@ def main():
 		starting_3utr = remove_NY(args.three_utr, args.pyrimidine_chance)
 
 		if args.alt_3p:
+			if args.three_p_but_no_pptness:
+				make_like_ppt = False
+			else:
+				make_like_ppt = True
+
 			assert len(
 				args.initial_cds) - 1 - args.cds_mut_end_trim >= args.ce_end + 1, "Need to tweak your mut_cds trims"
 			args.initial_cds = mut_cds(args.initial_cds, 1000, args.ce_end + 1,
-			                           len(args.initial_cds) - 1 - args.cds_mut_end_trim, pptness=True)
+			                           len(args.initial_cds) - 1 - args.cds_mut_end_trim,
+									   pptness=make_like_ppt)
 
 		for i in range(args.n_iterations_per_attempt):
 			bored += 1
@@ -515,7 +534,8 @@ def main():
 
 				new_seqs_ds.append({"seq": new_combined_seq, "separate_parts_d": separate_parts_d})
 
-			acceptor_probs, donor_probs = get_probs([a["seq"] for a in new_seqs_ds], good_contexts=good_contexts, context_seqs=context_seqs)
+			acceptor_probs, donor_probs = get_probs([a["seq"] for a in new_seqs_ds], good_contexts=good_contexts, context_seqs=context_seqs,
+													dont_use_contexts=args.dont_use_contexts)
 
 			# Is it good??
 			all_scores = {}
