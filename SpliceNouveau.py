@@ -542,38 +542,51 @@ def main():
 			for seq_no in range(args.n_seqs_per_it):
 				acceptor_prob = acceptor_probs[seq_no, :]
 				donor_prob = donor_probs[seq_no, :]
+				seq_length = len(acceptor_prob)
+				score_contribution_array = np.zeros((2, seq_length))  # This stores the contribution of each position to the score
 
 				if not args.one_intron:  # two introns...
-					const_donor = donor_prob[intron1_start - 1]
-					ce_acceptor = acceptor_prob[intron1_end]
-					ce_donor = donor_prob[intron2_start - 1]
-					const_acceptor = acceptor_prob[intron2_end]
+					for seq_pos in range(seq_length):
+						if seq_pos == intron1_start - 1:  # i.e. this is the position of the constant donor
+							score_contribution_array[0, seq_pos] = abs(donor_prob[seq_pos] - args.target_const_donor)
+							score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
-					score = 2 - abs(const_donor - args.target_const_donor) - abs(
-						const_acceptor - args.target_const_acc) - \
-					        abs(ce_donor - args.target_cryptic_donor) * args.ce_score_weight - abs(
-						ce_acceptor - args.target_cryptic_acc) * args.ce_score_weight
+						elif seq_pos == intron1_end:  # i.e. this is the position of the constant acceptor
+							score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
+							score_contribution_array[1, seq_pos] = abs(acceptor_prob[seq_pos] - args.target_const_acc)
 
-					bad_acc = max([acceptor_prob[a] for a in dont_want_ss])
-					bad_don = max([donor_prob[a - 1] for a in dont_want_ss])
-					score += -2 * bad_acc
-					score += -2 * bad_don
+						elif seq_pos == intron2_start - 1:
+							score_contribution_array[0, seq_pos] = abs(donor_prob[seq_pos] - args.target_cryptic_donor) * args.ce_score_weight
+							score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
+
+						elif seq_pos == intron2_end:
+							score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
+							score_contribution_array[1, seq_pos] = abs(acceptor_prob[seq_pos] - args.target_cryptic_acc) * args.ce_score_weight
+
+						elif seq_pos in dont_want_ss:
+							if seq_pos > 0:
+								score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
+							score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
 				else:  # only one intron
 					if args.ir:
-						ir_donor = donor_prob[intron1_start - 1]
-						ir_acceptor = acceptor_prob[intron1_end]
+						for seq_pos in range(seq_length):
+							if seq_pos == intron1_start - 1:  # i.e. this is the position of the constant donor
+								score_contribution_array[0, seq_pos] = abs(
+									donor_prob[seq_pos] - args.target_const_donor)
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
-						score = 2 - abs(ir_donor - args.target_const_donor) - abs(ir_acceptor - args.target_const_acc)
-						bad_acc = max([acceptor_prob[a] for a in dont_want_ss])
-						bad_don = max([donor_prob[a - 1] for a in dont_want_ss])
-						score += -2 * bad_acc
-						score += -2 * bad_don
+							elif seq_pos == intron1_end:  # i.e. this is the position of the constant acceptor
+								score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
+								score_contribution_array[1, seq_pos] = abs(
+									acceptor_prob[seq_pos] - args.target_const_acc)
+
+							elif seq_pos in dont_want_ss:
+								if seq_pos > 0:
+									score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
 					elif args.alt_5p:
-						cryptic_donor = donor_prob[intron1_start - 1]
-						const_acceptor = acceptor_prob[intron1_end]
-
 						# Alternative, i.e. constitutive, donor will be somewhere else
 						if args.alt_position == "in_intron":
 							valid_positions = [k for k in range(intron1_start, intron1_end - args.min_intron_l)]
@@ -581,26 +594,33 @@ def main():
 							valid_positions = [k for k in
 							                   range(args.alt_5p_start_trim, intron1_start - args.min_alt_dist)]
 
+						# Identify the strongest donor to act as alternative splice site in valid region
 						const_donor_pos = \
 							[k for k in valid_positions if
 							 donor_prob[k] == max([donor_prob[j] for j in valid_positions])][
 								0]
-						const_donor = donor_prob[const_donor_pos]
 
-						score = 2 - abs(const_donor - args.target_const_donor) * args.alt_weight - abs(
-							const_acceptor - args.target_const_acc)
-						score += -abs(cryptic_donor - args.target_cryptic_donor) * args.ce_score_weight
+						for seq_pos in range(seq_length):
+							if seq_pos == intron1_start - 1:  # i.e. this is the position of the cryptic (not constant!) donor
+								score_contribution_array[0, seq_pos] = abs(
+									donor_prob[seq_pos] - args.target_cryptic_donor) * args.ce_score_weight
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
-						bad_acc = max([acceptor_prob[a] for a in dont_want_ss])
-						bad_don = max([donor_prob[a - 1] for a in dont_want_ss if a != (const_donor_pos + 1)])
-						score += -2 * bad_acc
-						score += -2 * bad_don
+							elif seq_pos == intron1_end:  # i.e. this is the position of the constant acceptor
+								score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
+								score_contribution_array[1, seq_pos] = abs(
+									acceptor_prob[seq_pos] - args.target_const_acc)
 
+							elif seq_pos == const_donor_pos:
+								score_contribution_array[0, seq_pos] = abs(donor_prob[seq_pos] - args.target_const_donor) * args.alt_weight
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
+
+							elif seq_pos in dont_want_ss:
+								if seq_pos > 0:
+									score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
 					elif args.alt_3p:
-						const_donor = donor_prob[intron1_start - 1]
-						cryptic_acceptor = acceptor_prob[intron1_end]
-
 						# Alternative, i.e. constitutive, donor will be somewhere else
 						if args.alt_position == "in_intron":
 							valid_positions = [k for k in range(intron1_start + args.min_intron_l, intron1_end)]
@@ -608,20 +628,32 @@ def main():
 							valid_positions = [k for k in
 							                   range(intron1_end + args.min_alt_dist, total_l - args.alt_3p_end_trim)]
 
-						const_acceptor = max([acceptor_prob[j] for j in valid_positions])
 						const_acceptor_pos = [k for k in valid_positions if
 						                      acceptor_prob[k] == max([acceptor_prob[j] for j in valid_positions])][0]
-						const_acceptor = acceptor_prob[const_acceptor_pos]
 
-						score = 2 - abs(const_donor - args.target_const_donor) - abs(
-							const_acceptor - args.target_const_acc) * args.alt_weight
-						score += -abs(cryptic_acceptor - args.target_cryptic_acc) * args.ce_score_weight
 
-						bad_acc = max([acceptor_prob[a] for a in dont_want_ss if a != const_acceptor_pos])
-						bad_don = max([donor_prob[a - 1] for a in dont_want_ss])
-						score += -2 * bad_acc
-						score += -2 * bad_don
+						for seq_pos in range(seq_length):
+							if seq_pos == intron1_start - 1:  # i.e. this is the position of the constant donor
+								score_contribution_array[0, seq_pos] = abs(
+									donor_prob[seq_pos] - args.target_constant_donor)
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
+							elif seq_pos == intron1_end:  # i.e. this is the position of the cryptic acceptor
+								score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
+								score_contribution_array[1, seq_pos] = abs(
+									acceptor_prob[seq_pos] - args.target_cryptic_acc) * args.ce_score_weight
+
+							elif seq_pos == const_acceptor_pos:
+								score_contribution_array[0, seq_pos] = abs(
+									donor_prob[seq_pos] - args.target_const_acc) * args.alt_weight
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
+
+							elif seq_pos in dont_want_ss:
+								if seq_pos > 0:
+									score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
+								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
+
+				score = -np.sum(score_contribution_array)
 				all_scores[seq_no] = score
 
 			# find the best sequence
