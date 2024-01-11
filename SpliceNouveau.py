@@ -5,6 +5,7 @@ import random
 import argparse
 from os.path import exists
 import sys
+import random
 
 # conda activate keras-gpu
 # A test: python3 SpliceNouveau.py --initial_cds atggCgagaACAATGGTTGCTATGGTGTCCAAAGGTGAGGCAGTCATAAAGGAGTTTATGAGGTTCAAGGTGCACATGGAAGGGTCAATGAACGGACATGAGTTCGAAATTGAAGGTGAGGGCGAGGGCCGCCCCTATGAAGGGACACAAACTGCCAAGCTCAAAGTGACCAAGGGCGGGCCTCTGCCCTTCTCTTGGGATATCCTGAGCCCGCAGTTTATGTACGGCAGCCGGGCTTTCACCAAACACCCTGCCGATATCCCAGACTACTATAAACAGTCCTTTCCAGAAGGATTTAAGTGGGAGCGAGTCATGAATTTCGAGGACGGAGGTGCCGTGACGGTTACTCAGGACACCAGCCTGGAGGACGGCACCCTGATCTACAAGGTGAAGCTGAGGGGCACCAACTTCCCCCCCGACGGCCCCGTGATGCAGAAGAAGACCATGGGCTGGGAGGCCAGCACCGAGAGGCTGTACCCCGAGGACGGCGTGCTGAAGGGCGACATCAAGATGGCCCTGAGGCTGAAGGACGGCGGCAGGTACCTGGCCGACTTCAAGACCACCTACAAGGCCAAGAAGCCCGTGCAGATGCCCGGCGCCTACAACGTGGACAGGAAGCTGGACATCACCAGCCACAACGAGGACTACACCGTGGTGGAGCAGTACGAGAGGAGCGAGGGCAGGCACAGCACCGGCGGCATGGACGAGCTGTACAAGGACTACAAGGACGATGATGACAAG --initial_intron1 GTAAGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNTGTGTGTGTGTGTGTGTGTGAATGTGTGTGTGTGTGTGTGNNAG --initial_intron2 GTNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYAG --ce_start 43 --ce_end 159 --ce_mut_chance 1 --five_utr CGGCCGCTTCTTGGTGCCAGCTTATCAtagcgctaccggtcgccacc --three_utr TGATAAACAAATGGTAAGGAAGGGCACATCAATCTTTGCTTAATTGTCCTTTACTCTAAAGATGTATTTTATCATACTGAATGCTAAACTTGATATCTCCTTTTAGGTCATTGATGTCCTTCACCCCGGGAAGGCGACAGTGCCTAAGACAGAAATTCGGGAAAAACTAGCCAAAATGTACAAGACCACACCGGATGTCATCTTTGTATTTGGATTCAGAACTCAGTAAACTGGATCCGCAGGCCTCTGCTAGCTTGACTGACTGAGATACAGCGTACCTTCAGCTCACAGACATGATAAGATACATTGATGAGTTTGGACAAACCACAACTAGAATGCAGTGAAAAAAATGCTTTATTTGTGAAATTTGTGATGCTATTGCTTTATTTGTAACCATTATAAGCTGCAATAAACAAGTTAACAACAACAATTGCATTCATTTTATGTTTCAGGTTCAGGGGGAGGTGTGGGAGGTTTTTTAA --ignore_end 470 --aa generate_it --upstream_mut_chance 0.2 --downstream_mut_chance 0.2 --output mscar/aars1_inspired_closer_aim_0p5.csv --target_cryptic_donor 0.5 --target_cryptic_acc 0.5 -a 5 --intron1_mut_chance 0.5 --intron2_mut_chance 0.5 -n 2000 --cds_mut_end_trim 569
@@ -40,6 +41,14 @@ if load_tf:
 
 		acceptor_prob = y[:, :, 1]
 		donor_prob = y[:, :, 2]
+
+		# Shift acceptor probabilities so that they align correctly (at the G of the AG)
+		acceptor_prob = np.roll(acceptor_prob, -1)
+		acceptor_prob[-1] = 0
+
+		# Shift donor probabilities so that they align correctly (at the G of the GT)
+		donor_prob = np.roll(donor_prob, 1)
+		donor_prob[0] = 0
 
 		return acceptor_prob, donor_prob
 
@@ -188,6 +197,29 @@ def remove_NY(initial_seq, pyrimidine_chance):
 	return ''.join(new_seq)
 
 
+def mutate_single_codon(codon):
+	aa = translate_cds(codon)
+
+	d = {"A": ["GCT", "GCC", "GCA", "GCG"], "I": ["ATT", "ATC", "ATA"],
+	     "R": ["CGT", "CGC", "CGA", "CGG", "AGA", "AGG"], "L": ["CTT", "CTC", "CTA", "CTG", "TTA", "TTG"],
+	     "N": ["AAT", "AAC"], "K": ["AAA", "AAG"], "D": ["GAT", "GAC"], "M": ["ATG"],
+	     "F": ["TTT", "TTC"], "C": ["TGT", "TGC"], "P": ["CCT", "CCC", "CCA", "CCG"],
+	     "Q": ["CAA", "CAG"], "S": ["TCT", "TCC", "TCA", "TCG", "AGT", "AGC"],
+	     "E": ["GAA", "GAG"], "T": ["ACT", "ACC", "ACA", "ACG"],
+	     "W": ["TGG"],
+	     "G": ["GGT", "GGC", "GGA", "GGG"], "Y": ["TAT", "TAC"],
+	     "H": ["CAT", "CAC"], "V": ["GTT", "GTC", "GTA", "GTG"]}
+
+	possible_codons = d[aa]
+
+	possible_codons = [a for a in possible_codons if a != codon]
+
+	if len(possible_codons) == 0:
+		return codon
+
+	else:
+		return random.choice(possible_codons)
+
 def mutate_codons(seq, aa_seq, n, start_codon, end_codon, pptness=False):
 	assert len(seq) == 3 * len(aa_seq)
 	for _ in range(n):
@@ -255,20 +287,20 @@ def get_args():
 	                         "defining the splice site position within CDS when using --one_intron mode.")
 	parser.add_argument("--ce_end", type=int, required=False, default=0,
 	                    help="The position (0 based) of the last CE nucleotide in the CDS")
-	parser.add_argument("--ce_mut_chance", type=float, default=0,
+	parser.add_argument('--mutate_bad_regions_factor', type=float, default=10,
+						help='Regions which score badly are more likely to be mutated. Higher value results in '
+							 'stronger bias towards mutating regions which score badly. 0 sets this to off.')
+	parser.add_argument("--ce_mut_weight", type=float, default=1,
 	                    help="Chance per iteration that CE is mutated")
 	parser.add_argument("--ce_mut_n", type=int, default=1,
 	                    help="Number of mutations per iteration")
-	parser.add_argument("--upstream_mut_chance", type=float, default=0,
-	                    help="Chance per iteration that CE is mutated")
+	parser.add_argument("--CDS_mut_weight", type=float, default=1,
+	                    help="Chance per iteration that non-CE CDS is mutated")
 	parser.add_argument("--upstream_mut_n", type=int, default=1,
 	                    help="Number of mutations per iteration")
-	parser.add_argument("--downstream_mut_chance", type=float, default=0,
-	                    help="Chance per iteration that CE is mutated")
 	parser.add_argument("--downstream_mut_n", type=int, default=1,
 	                    help="Number of mutations per iteration")
-	parser.add_argument("--intron1_mut_chance", default=0, type=float)
-	parser.add_argument("--intron2_mut_chance", default=0, type=float)
+	parser.add_argument("--intron_mut_weight", default=1, type=float)
 	parser.add_argument("--intron1_mut_n", default=1, type=int)
 	parser.add_argument("--intron2_mut_n", default=1, type=int)
 	parser.add_argument("--target_const_donor", default=1, type=float, help="Target spliceAI for upstream/IR donor")
@@ -399,6 +431,54 @@ def mut_noncoding(seq, positions_to_mut, n_mut):
 	return ''.join(new_seq)
 
 
+def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_score_contribution_array,
+					mutate_bad_regions_factor, ce_mut_weight, CDS_mut_weight, intron_mut_weight):
+
+	# Create dictionary with assignments linked to third row of transcript_structure_array
+	# Intron is weighted 3-fold because there is much more freedom in intron
+	weight_d = {0: 0, 1: CDS_mut_weight, 2: ce_mut_weight, 3: intron_mut_weight*3, 4: 0}
+
+	# Normalise contribution array so the max value is 1
+	prev_best_score_contribution_array = prev_best_score_contribution_array/max(prev_best_score_contribution_array)
+
+	chances = []
+	for i in range(len(transcript_structure_array[0, :])):
+		# chance = can_be_mutated * (1 + factor * score_contribution * weight_for_this_type_of_sequence)
+		chances.append(transcript_structure_array[0, i] * (1 + mutate_bad_regions_factor * prev_best_score_contribution_array[i] * weight_d[transcript_structure_array[2, i]]))
+
+	position_to_mutate = random.choices(list(range(len(prev_best_sequence))),
+										 k=1,
+										 weights=chances)[0]
+
+	# What type of region is this?
+	position_type = transcript_structure_array[2, position_to_mutate]
+
+	if position_type == 3:  # intron i.e. non-coding
+		current_nt = prev_best_sequence[position_to_mutate]
+		new_nts = [a for a in ['A', 'T', 'C', 'G'] if a != current_nt.upper()]
+		new_seq = list(prev_best_sequence)
+		new_seq[position_to_mutate] = random.choice(new_nts)
+		new_seq = ''.join(new_seq)
+		return new_seq
+
+	else:  # it's a coding sequence
+		current_codon_pos = transcript_structure_array[5, position_to_mutate]
+		codon_number = int(current_codon_pos)
+
+		positions_of_this_codon_in_sequence = [i for i in range(len(prev_best_sequence)) if int(transcript_structure_array[5, i]) == codon_number]
+
+		current_codon = ''.join([a for i, a in enumerate(list(prev_best_sequence)) if i in positions_of_this_codon_in_sequence])
+
+		new_codon = mutate_single_codon(current_codon)
+
+		new_seq = list(prev_best_sequence)
+		for i, p in enumerate(positions_of_this_codon_in_sequence):
+			new_seq[p] = new_codon[i]
+
+		new_seq = ''.join(new_seq)
+		return new_seq
+
+
 def mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intron2, prev_best_3utr, args,
                to_mut_intron1, to_mut_intron2, no_mut=False):
 	my_choice = random.choices([1, 2, 3, 4, 5], k=1, weights=[args.ce_mut_chance, args.upstream_mut_chance,
@@ -440,15 +520,6 @@ def mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intro
 	return new_combined_seq, separate_parts_d
 
 
-def make_mutagenesis_weights(score_array):
-	# Initialise a weights array
-	mutagenesis_weights = np.zeros(len(score_array[0, :]))
-
-	for i in range(len(score_array[0, :])):
-		this_sum = np.sum(score_array[i, :])
-
-		if
-
 
 def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, ce_start, ce_end,
 									ignore_start=0, ignore_end=0, cds_mut_start_trim=0, cds_mut_end_trim=0,
@@ -470,6 +541,10 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 
 	The fifth row records whether a given position is a valid position for an alternative donor/acceptor (0 = false,
 	1 = true)
+
+	The sixth row records the codon sub position of each position within the coding sequence. Eg 14.0 is the first
+	nucleotide of the 14th codon. 3.2 is the third codon of the 15th codon. If it's not coding then this is set to
+	-1. All indexing is zero based (the first nucleotide of CDS is 0.0)
 	"""
 	total_l = len(five_utr) + len(cds) + len(three_utr) + len(intron1) + len(intron2)
 
@@ -537,6 +612,12 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 			else:
 				assert 0==1, 'unexpected position'
 
+			if this_type in ['upstream_cds, CE, downstrem_cds']:
+				codon_pos = cds_counter//3 + 0.1*(cds_counter % 3)
+				transcript_structure_array[5, i] = codon_pos
+			else:
+				codon_pos = -1
+
 		else:
 			this_type = 'three_utr'
 			transcript_structure_array[2, i] = 4  # intron
@@ -582,7 +663,6 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 	return transcript_structure_array
 
 
-
 def main():
 	print("Reading arguments")
 	args = get_args()
@@ -599,27 +679,21 @@ def main():
 																 cds=args.initial_cds,
 																 intron1=args.initial_intron1,
 																 intron2=args.initial_intron2,
-																 three_utr=args.three_utr)
-
-	# Find which positions can be mutated
-	to_mut_intron1 = [i for i, a in enumerate(list(args.initial_intron1)) if a.islower() or a.upper() in ["Y", "N"]]
-	to_mut_intron2 = [i for i, a in enumerate(list(args.initial_intron2)) if a.islower() or a.upper() in ["Y", "N"]]
-
-	# Find positions of the splice sites
-	intron1_start = len(args.five_utr) + args.ce_start
-	intron1_end = intron1_start + len(args.initial_intron1)
-	intron2_start = intron1_end - args.ce_start + args.ce_end
-	intron2_end = intron2_start + len(args.initial_intron2)
-
-	# find positions where we don't want splice sites
-	total_l = len(args.five_utr) + len(args.initial_cds) + len(args.three_utr) + len(args.initial_intron1) + \
-	          len(args.initial_intron2)
-
-	print(total_l)
-	print(total_l - args.ignore_end)
-
-	dont_want_ss = [i for i in range(args.ignore_start, total_l - args.ignore_end) if i \
-	                not in [intron1_start, intron1_end, intron2_start, intron2_end]]
+																 three_utr=args.three_utr,
+																 ce_start=args.ce_start,
+																 ce_end=args.ce_end,
+																 ignore_start=args.ignore_start,
+																 ignore_end=args.ignore_end,
+																 cds_mut_start_trim=args.cds_mut_start_trim,
+																 cds_mut_end_trim=args.cds_mut_end_trim,
+																 one_intron=args.one_intron,
+																 ir=args.ir,
+																 alt_5p=args.alt_5p,
+																 alt_3p=args.alt_3p,
+																 min_alt_distance=args.alt_min_distance,
+																 alt_position=args.alt_position,
+																 alt_3p_end_trim=args.alt_3p_end_trim,
+																 min_intron_l=args.min_intron_l)
 
 
 
@@ -674,20 +748,31 @@ def main():
 				prev_best_3utr = starting_3utr
 				prev_best_cds = args.initial_cds
 
-			new_seqs_ds = []
+			new_seqs = []
 			for j in range(args.n_seqs_per_it):
 				if i > 0:
-					new_combined_seq, separate_parts_d = mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intron2,
-					                              prev_best_3utr, args, to_mut_intron1, to_mut_intron2)
+
+					new_combined_seq = mutate_sequence(prev_best_sequence,
+													   transcript_structure_array,
+													   prev_best_score_contribution_array,
+													   args.mutate_bad_regions_factor,
+													   args.ce_mut_weight, args.CDS_mut_weight, args.intron_mut_weight)
 
 				else:
-					new_combined_seq, separate_parts_d = mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intron2,
-					                              prev_best_3utr, args, to_mut_intron1, to_mut_intron2, no_mut=True)
+					prev_best_sequence = (prev_best_5utr + prev_best_cds[0:args.ce_start] + prev_best_intron1 + \
+	                   prev_best_cds[args.ce_start:args.ce_end] + prev_best_intron2 + prev_best_cds[args.ce_end:] +
+										  prev_best_3utr)
+					new_combined_seq = prev_best_sequence
 
-				new_seqs_ds.append({"seq": new_combined_seq, "separate_parts_d": separate_parts_d})
+				new_seqs.append(new_combined_seq)
 
-			acceptor_probs, donor_probs = get_probs([a["seq"] for a in new_seqs_ds], good_contexts=good_contexts, context_seqs=context_seqs,
+			acceptor_probs, donor_probs = get_probs(new_seqs, good_contexts=good_contexts, context_seqs=context_seqs,
 													dont_use_contexts=args.dont_use_contexts)
+
+			# TODO: Create dictionaries with the expected value, and the weight, for each sequence type.
+			# It should then be possible to massively simplify the score contribution stuff here, possibly
+			# just to two lines
+			# e.g. for i in range(): score[i] = array[4,i] * weight_d[array[1, i]] * expected_val[array[1, i]]
 
 			# Is it good??
 			all_scores = {}
