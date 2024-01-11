@@ -451,7 +451,9 @@ def make_mutagenesis_weights(score_array):
 
 
 def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, ce_start, ce_end,
-									ignore_start, ignore_end, cds_mut_start_trim, cds_mut_end_trim):
+									ignore_start=0, ignore_end=0, cds_mut_start_trim=0, cds_mut_end_trim=0,
+									one_intron=False, ir=False, alt_5p=False, alt_3p=False, min_alt_distance=0,
+									alt_position="", alt_3p_end_trim=0, min_intron_l=70):
 	"""
 	This array stores information about the structure of the transcript that is being created.
 
@@ -465,10 +467,13 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 	coding sequence, 2 = cryptically-expressed coding sequence, 3 = intron, 4 = 3' utr
 
 	The fourth row records whether a given region should be scored (0 = false, 1 = true)
+
+	The fifth row records whether a given position is a valid position for an alternative donor/acceptor (0 = false,
+	1 = true)
 	"""
 	total_l = len(five_utr) + len(cds) + len(three_utr) + len(intron1) + len(intron2)
 
-	transcript_structure_array = np.zeros((4, total_l))
+	transcript_structure_array = np.zeros((5, total_l))
 	transcript_structure_array[3, :] = 1  # By default assume all positions are important for scoring
 
 	to_mut_intron1 = [i for i, a in enumerate(list(intron1)) if a.islower() or a.upper() in ["Y", "N"]]
@@ -483,6 +488,7 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 		this_type = None
 		if i < len(five_utr):
 			this_type = 'five_utr'
+			transcript_structure_array[2, i] = 0  # five utr
 
 		elif i < total_l - len(three_utr):  # not in UTRs as UTRs are never mutated
 			if i < len(five_utr) + ce_start:
@@ -493,14 +499,36 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 				intron1_counter += 1
 				this_type = 'intron1'
 
+				transcript_structure_array[2, i] = 3  # intron
+
+				if intron1_counter == 0:
+					if ir or alt_5p:
+						transcript_structure_array[1, i] = 3  # cryptic donor
+					else:
+						transcript_structure_array[1, i] = 1  # constant donor
+
+				if intron1_counter == len(intron1) - 1:
+					if alt_5p:
+						transcript_structure_array[1, i] = 2  # constant acceptor
+					else:  # ir or alt_3p (or normal CE)
+						transcript_structure_array[1, i] = 4  # cryptic acceptor
+
 			elif i < len(five_utr) + len(intron1) + ce_end:
 				ce_counter += 1
 				cds_counter += 1
 				this_type = 'CE'
 
-			elif i < len(five_utr) + len(intron1) + ce_end + len(intron2):
+			elif i < len(five_utr) + len(intron1) + ce_end + len(intron2) and not one_intron:
 				intron2_counter += 1
 				this_type = 'intron2'
+
+				transcript_structure_array[2, i] = 3  # intron
+
+				if not one_intron:
+					if intron2_counter == 0:
+						transcript_structure_array[1, i] = 3  # cryptic donor
+					elif intron2_counter == len(intron2) - 1:
+						transcript_structure_array[1, i] = 2  # constant acceptor
 
 			elif i >= len(five_utr) + len(intron1) + ce_end + len(intron2):
 				cds_counter += 1
@@ -511,31 +539,47 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 
 		else:
 			this_type = 'three_utr'
+			transcript_structure_array[2, i] = 4  # intron
 
-		# Fill out rows
-		if i < ignore_start or i >= total_l - ignore_end:
-			transcript_structure_array[3, i] = 0
-
+		# Fill out first and third rows (index 0 and 2)
 		if this_type in ['upstream_cds', 'CE', 'downstream_cds']:
-			if this_type == 'CE':
-				transcript_structure_array[1, i] = 2  # cryptically expressed coding sequencing
-			else:
-				transcript_structure_array[1, i] = 1  # 
-
 			if cds_mut_start_trim <= cds_counter < len(cds) - cds_mut_end_trim:
+				transcript_structure_array[0, i] = 1  # can be mutated
+
+			if this_type == 'CE':
+				transcript_structure_array[2, i] = 2  # cryptically expressed coding sequencing
+			else:
+				transcript_structure_array[2, i] = 1  # constitutively expressed coding sequence
+
+		if this_type == 'intron1':
+			if intron1_counter in to_mut_intron1:
 				transcript_structure_array[0, i] = 1
 
+		if this_type == 'intron2':
+			if intron2_counter in to_mut_intron2:
+				transcript_structure_array[0, i] = 1
 
+		# Fill out fourth row (index 3)
+		if i < ignore_start or i >= total_l - ignore_end:
+			transcript_structure_array[3, i] = 0  # Ignored during scoring
+			transcript_structure_array[0, i] = 0  # Also shouldn't mutate stuff that is ignored
 
+	# Find valid positions of alternative splice sites
+	if alt_5p:
+		if alt_position == 'in_exon':
+			transcript_structure_array[4, ignore_start+1:len(five_utr)+ce_start-min_alt_distance] = 1
+		elif alt_position == 'in_intron':
+			transcript_structure_array[4, len(five_utr)+ce_start+min_alt_distance:len(five_utr)+ce_start+len(intron1)-min_intron_l] = 1
 
+	if alt_3p:
+		if alt_position == 'in_exon':
+			start_of_region = len(five_utr) + ce_start + len(intron1) + min_alt_distance
+			end_of_region = min([total_l-ignore_end, total_l-alt_3p_end_trim])
+			transcript_structure_array[4, start_of_region:end_of_region] = 1
+		elif alt_position == 'in_intron':
+			transcript_structure_array[4, len(five_utr)+ce_start+min_intron_l:len(five_utr) + ce_start + len(intron1) - min_alt_distance] = 1
 
-
-
-
-
-
-
-
+	return transcript_structure_array
 
 
 
