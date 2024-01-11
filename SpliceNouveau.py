@@ -440,6 +440,105 @@ def mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intro
 	return new_combined_seq, separate_parts_d
 
 
+def make_mutagenesis_weights(score_array):
+	# Initialise a weights array
+	mutagenesis_weights = np.zeros(len(score_array[0, :]))
+
+	for i in range(len(score_array[0, :])):
+		this_sum = np.sum(score_array[i, :])
+
+		if
+
+
+def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, ce_start, ce_end,
+									ignore_start, ignore_end, cds_mut_start_trim, cds_mut_end_trim):
+	"""
+	This array stores information about the structure of the transcript that is being created.
+
+	The first row records whether a given position can be mutated 0 = cannot be mutated, 1 = can be mutated
+
+	The second row records the position of intended splice sites. 0 = not a splice site, 1 = the constant donor,
+	2 = the constant acceptor, 3 = cryptic donor, 4 = cryptic acceptor, 5 = alternative donor, 6 = alternative
+	acceptor.
+
+	The third row records the type of exonic/intronic region we are in. 0 = 5' UTR, 1 = constitutively expressed
+	coding sequence, 2 = cryptically-expressed coding sequence, 3 = intron, 4 = 3' utr
+
+	The fourth row records whether a given region should be scored (0 = false, 1 = true)
+	"""
+	total_l = len(five_utr) + len(cds) + len(three_utr) + len(intron1) + len(intron2)
+
+	transcript_structure_array = np.zeros((4, total_l))
+	transcript_structure_array[3, :] = 1  # By default assume all positions are important for scoring
+
+	to_mut_intron1 = [i for i, a in enumerate(list(intron1)) if a.islower() or a.upper() in ["Y", "N"]]
+	to_mut_intron2 = [i for i, a in enumerate(list(intron2)) if a.islower() or a.upper() in ["Y", "N"]]
+
+	cds_counter = -1
+	intron1_counter = -1
+	intron2_counter = -1
+	ce_counter = -1
+
+	for i in range(total_l):
+		this_type = None
+		if i < len(five_utr):
+			this_type = 'five_utr'
+
+		elif i < total_l - len(three_utr):  # not in UTRs as UTRs are never mutated
+			if i < len(five_utr) + ce_start:
+				cds_counter += 1
+				this_type = 'upstream_cds'
+
+			elif i < len(five_utr) + ce_start + len(intron1):
+				intron1_counter += 1
+				this_type = 'intron1'
+
+			elif i < len(five_utr) + len(intron1) + ce_end:
+				ce_counter += 1
+				cds_counter += 1
+				this_type = 'CE'
+
+			elif i < len(five_utr) + len(intron1) + ce_end + len(intron2):
+				intron2_counter += 1
+				this_type = 'intron2'
+
+			elif i >= len(five_utr) + len(intron1) + ce_end + len(intron2):
+				cds_counter += 1
+				this_type = 'downstream_cds'
+
+			else:
+				assert 0==1, 'unexpected position'
+
+		else:
+			this_type = 'three_utr'
+
+		# Fill out rows
+		if i < ignore_start or i >= total_l - ignore_end:
+			transcript_structure_array[3, i] = 0
+
+		if this_type in ['upstream_cds', 'CE', 'downstream_cds']:
+			if this_type == 'CE':
+				transcript_structure_array[1, i] = 2  # cryptically expressed coding sequencing
+			else:
+				transcript_structure_array[1, i] = 1  # 
+
+			if cds_mut_start_trim <= cds_counter < len(cds) - cds_mut_end_trim:
+				transcript_structure_array[0, i] = 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def main():
 	print("Reading arguments")
 	args = get_args()
@@ -451,6 +550,12 @@ def main():
 			context_seqs.append(line.rstrip())
 
 	good_contexts = pd.read_csv(args.context_dir + "6_good_conditions.csv")
+
+	transcript_structure_array = make_transcript_structure_array(five_utr=args.five_utr,
+																 cds=args.initial_cds,
+																 intron1=args.initial_intron1,
+																 intron2=args.initial_intron2,
+																 three_utr=args.three_utr)
 
 	# Find which positions can be mutated
 	to_mut_intron1 = [i for i, a in enumerate(list(args.initial_intron1)) if a.islower() or a.upper() in ["Y", "N"]]
@@ -471,6 +576,8 @@ def main():
 
 	dont_want_ss = [i for i in range(args.ignore_start, total_l - args.ignore_end) if i \
 	                not in [intron1_start, intron1_end, intron2_start, intron2_end]]
+
+
 
 	print("CHECK THIS IS WHAT'S EXPECTED")
 	print("Upstream region:")
@@ -508,6 +615,7 @@ def main():
 
 			assert len(
 				args.initial_cds) - 1 - args.cds_mut_end_trim >= args.ce_end + 1, "Need to tweak your mut_cds trims"
+
 			args.initial_cds = mut_cds(args.initial_cds, 1000, args.ce_end + 1,
 			                           len(args.initial_cds) - 1 - args.cds_mut_end_trim,
 									   pptness=make_like_ppt)
@@ -654,15 +762,17 @@ def main():
 								score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
 
 				score = -np.sum(score_contribution_array)
-				all_scores[seq_no] = score
+				all_scores[seq_no] = [score, score_contribution_array]
 
 			# find the best sequence
-			best_seq_no = max(all_scores, key=lambda k: all_scores[k])
-			score = all_scores[best_seq_no]
+			best_seq_no = max(all_scores, key=lambda k: all_scores[k][0])
+			score = all_scores[best_seq_no][0]
 			new_combined_seq = new_seqs_ds[best_seq_no]["seq"]
 
 			this_best_acceptor_prob = acceptor_probs[best_seq_no, :]  # note this is the probs across whole sequence
 			this_best_donor_prob = donor_probs[best_seq_no, :]
+
+			this_best_score_contribution_array = all_scores[best_seq_no][1]
 
 			if i == 0 and args.track_splice_scores:
 				print("writing")
@@ -675,6 +785,8 @@ def main():
 				prev_best_intron2 = new_seqs_ds[best_seq_no]["separate_parts_d"]["intron2"]
 				prev_best_3utr = new_seqs_ds[best_seq_no]["separate_parts_d"]["utr3"]
 				prev_best_cds = new_seqs_ds[best_seq_no]["separate_parts_d"]["cds"]
+				prev_best_score_contribution_array = this_best_score_contribution_array
+				mutagenesis_weights = make_mutagenesis_weights(prev_best_score_contribution_array,)
 
 
 
