@@ -446,6 +446,8 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
 		# chance = can_be_mutated * (1 + factor * score_contribution * weight_for_this_type_of_sequence)
 		chances.append(transcript_structure_array[0, i] * (1 + mutate_bad_regions_factor * prev_best_score_contribution_array[i] * weight_d[transcript_structure_array[2, i]]))
 
+	# TODO - apply a convolution to chances so that it's spread over nearby positions
+
 	position_to_mutate = random.choices(list(range(len(prev_best_sequence))),
 										 k=1,
 										 weights=chances)[0]
