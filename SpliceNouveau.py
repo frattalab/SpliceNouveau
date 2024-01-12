@@ -278,8 +278,8 @@ def get_args():
                         help="The initial CDS sequence, WITHOUT stop codon - state generate_it to make it")
     parser.add_argument("--initial_intron1", type=str, required=True)
     parser.add_argument("--initial_intron2", type=str, required=False, default="")
-    parser.add_argument("--five_utr", default="TGA")
-    parser.add_argument("--three_utr", default="")
+    parser.add_argument("--five_utr", default="")
+    parser.add_argument("--three_utr", default="TAA")
     parser.add_argument("--ignore_start", default=0, type=int,
                         help="Ignore nucleotides before this. Eg ignore_start=100 would ignore the "
                              "first 100 nucleotides when scoring sequences")
@@ -577,14 +577,14 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
                     elif intron2_counter == len(intron2) - 1:
                         transcript_structure_array[1, i] = 2  # constant acceptor
 
-            elif i >= len(five_utr) + len(intron1) + ce_end + len(intron2):
+            elif i < len(five_utr) + len(intron1) + len(cds) + len(intron2):
                 cds_counter += 1
                 this_type = 'downstream_cds'
 
             else:
                 assert 0 == 1, 'unexpected position'
 
-            if this_type in ['upstream_cds, CE, downstream_cds']:
+            if this_type in ['upstream_cds', 'CE', 'downstream_cds']:
                 codon_pos = cds_counter // 3 + 0.1 * (cds_counter % 3)
                 transcript_structure_array[5, i] = codon_pos
             else:
