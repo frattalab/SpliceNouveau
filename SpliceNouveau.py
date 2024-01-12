@@ -470,7 +470,6 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
         new_seq[position_to_mutate] = random.choice(new_nts)
         new_seq = ''.join(new_seq)
 
-
     else:  # it's a coding sequence
         current_codon_pos = transcript_structure_array[5, position_to_mutate]
         codon_number = int(current_codon_pos)
@@ -490,48 +489,6 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
         new_seq = ''.join(new_seq)
 
     return new_seq
-
-
-def mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intron2, prev_best_3utr, args,
-               to_mut_intron1, to_mut_intron2, no_mut=False):
-    my_choice = random.choices([1, 2, 3, 4, 5], k=1, weights=[args.ce_mut_chance, args.upstream_mut_chance,
-                                                              args.downstream_mut_chance,
-                                                              args.intron1_mut_chance,
-                                                              args.intron2_mut_chance])[0]
-
-    if no_mut:
-        my_choice = None
-
-    # initialise
-    new_cds = prev_best_cds
-    new_intron1 = prev_best_intron1
-    new_intron2 = prev_best_intron2
-
-    if my_choice == 1:
-        new_cds = mut_cds(prev_best_cds, args.ce_mut_n, mut_start=args.ce_start, mut_end=args.ce_end)
-
-    elif my_choice == 2:
-        new_cds = mut_cds(prev_best_cds, args.upstream_mut_n, args.cds_mut_start_trim, args.ce_start - 1)
-
-    elif my_choice == 3:
-        assert len(
-            new_cds) - 1 - args.cds_mut_end_trim >= args.ce_end + 1, "Need to tweak your mut_cds trims"
-        new_cds = mut_cds(prev_best_cds, args.downstream_mut_n, args.ce_end + 1,
-                          len(prev_best_cds) - 1 - args.cds_mut_end_trim)
-
-    elif my_choice == 4:
-        new_intron1 = mut_noncoding(prev_best_intron1, to_mut_intron1, args.intron1_mut_n)
-
-    elif my_choice == 5:
-        new_intron2 = mut_noncoding(prev_best_intron2, to_mut_intron2, args.intron2_mut_n)
-
-    new_combined_seq = prev_best_5utr + new_cds[0:args.ce_start] + new_intron1 + \
-                       new_cds[args.ce_start:args.ce_end] + new_intron2 + new_cds[args.ce_end:] + prev_best_3utr
-
-    separate_parts_d = {"utr5": prev_best_5utr, "cds": new_cds, "intron1": new_intron1, "intron2": new_intron2,
-                        "utr3": prev_best_3utr}
-
-    return new_combined_seq, separate_parts_d
 
 
 def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, ce_start, ce_end,
@@ -556,12 +513,13 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 	1 = true)
 
 	The sixth row records the codon sub position of each position within the coding sequence. Eg 14.0 is the first
-	nucleotide of the 14th codon. 3.2 is the third codon of the 15th codon. If it's not coding then this is set to
-	-1. All indexing is zero based (the first nucleotide of CDS is 0.0)
+	nucleotide of the 14th codon (starting from zero-th codon, i.e. it's actually the 15th). 3.2 is the third codon
+	of the 3rd codon. If it's not coding then this is set to -1. All indexing is zero based (the first
+	nucleotide of CDS is 0.0)
 	"""
     total_l = len(five_utr) + len(cds) + len(three_utr) + len(intron1) + len(intron2)
 
-    transcript_structure_array = np.zeros((5, total_l))
+    transcript_structure_array = np.zeros((6, total_l))
     transcript_structure_array[3, :] = 1  # By default assume all positions are important for scoring
 
     to_mut_intron1 = [i for i, a in enumerate(list(intron1)) if a.islower() or a.upper() in ["Y", "N"]]
@@ -577,6 +535,7 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
         if i < len(five_utr):
             this_type = 'five_utr'
             transcript_structure_array[2, i] = 0  # five utr
+            transcript_structure_array[5, i] = -1
 
         elif i < total_l - len(three_utr):  # not in UTRs as UTRs are never mutated
             if i < len(five_utr) + ce_start:
@@ -625,7 +584,7 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
             else:
                 assert 0 == 1, 'unexpected position'
 
-            if this_type in ['upstream_cds, CE, downstrem_cds']:
+            if this_type in ['upstream_cds, CE, downstream_cds']:
                 codon_pos = cds_counter // 3 + 0.1 * (cds_counter % 3)
                 transcript_structure_array[5, i] = codon_pos
             else:
@@ -635,8 +594,9 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
         else:
             this_type = 'three_utr'
             transcript_structure_array[2, i] = 4  # intron
+            transcript_structure_array[5, i] = -1
 
-        # Fill out first and third rows (index 0 and 2)
+            # Fill out first and third rows (index 0 and 2)
         if this_type in ['upstream_cds', 'CE', 'downstream_cds']:
             if cds_mut_start_trim <= cds_counter < len(cds) - cds_mut_end_trim:
                 transcript_structure_array[0, i] = 1  # can be mutated
@@ -683,11 +643,19 @@ def make_score_contribution_array(transcript_structure_array, donor_probs, accep
                                   target_const_acceptor, target_cryptic_donor, target_cryptic_acceptor,
                                   target_alternative_donor, target_alternative_acceptor, ce_score_weight,
                                   alt_score_weight, alt_5p, alt_3p):
+    """
+	This function makes a (2,seq_length) array/matrix that gives the score contribution of each donor and acceptor
+	probability. The first row is for donors, the second is for acceptors. The 2-sum(whole_array)=total_score
+	(don't ask me why I chose 2 as a constant)
+	"""
+
+    # First, if alternative 3' or 5', identify the position of the alternative splice site
+
     if alt_5p:
         # Find the strongest donor in the region of valid alt donor positions
         max_valid_donor = max([a for i, a in enumerate(donor_probs) if transcript_structure_array[4, i] == 1])
         alt_5p_pos = \
-        [i for i, a in enumerate(donor_probs) if a == max_valid_donor and transcript_structure_array[4, i] == 1][0]
+            [i for i, a in enumerate(donor_probs) if a == max_valid_donor and transcript_structure_array[4, i] == 1][0]
         transcript_structure_array[1, alt_5p_pos] = 5  # alt donor
 
     if alt_3p:
@@ -696,6 +664,8 @@ def make_score_contribution_array(transcript_structure_array, donor_probs, accep
         alt_3p_pos = \
             [i for i, a in enumerate(acceptor_probs) if a == max_valid_acc and transcript_structure_array[4, i] == 1][0]
         transcript_structure_array[1, alt_3p_pos] = 6  # alt acceptor
+
+    # Now, score the values in a consistent way
 
     seq_length = len(donor_probs)
 
@@ -753,7 +723,7 @@ def main():
                                                                  ir=args.ir,
                                                                  alt_5p=args.alt_5p,
                                                                  alt_3p=args.alt_3p,
-                                                                 min_alt_distance=args.alt_min_distance,
+                                                                 min_alt_distance=args.min_alt_dist,
                                                                  alt_position=args.alt_position,
                                                                  alt_3p_end_trim=args.alt_3p_end_trim,
                                                                  min_intron_l=args.min_intron_l)
@@ -802,170 +772,52 @@ def main():
         for i in range(args.n_iterations_per_attempt):
             bored += 1
 
-            if i == 0:
-                prev_best_5utr = starting_5utr
-                prev_best_intron1 = starting_intron1
-                prev_best_intron2 = starting_intron2
-                prev_best_3utr = starting_3utr
-                prev_best_cds = args.initial_cds
 
             new_seqs = []
             for j in range(args.n_seqs_per_it):
+                if i == 0:
+                    new_combined_seq = starting_5utr + args.initial_cds[0:args.ce_start] + starting_intron1 + \
+                    args.initial_cds[args.ce_start:args.ce_end] + starting_intron2 + \
+                    args.initial_cds[args.ce_end:] + starting_3utr
+
                 if i > 0:
 
-                    new_combined_seq = mutate_sequence(prev_best_sequence,
+                    new_combined_seq = mutate_sequence(best_seq,
                                                        transcript_structure_array,
-                                                       prev_best_score_contribution_array,
+                                                       best_score_contribution_array,
                                                        args.mutate_bad_regions_factor,
                                                        args.ce_mut_weight, args.CDS_mut_weight, args.intron_mut_weight)
 
-                else:
-                    prev_best_sequence = (prev_best_5utr + prev_best_cds[0:args.ce_start] + prev_best_intron1 + \
-                                          prev_best_cds[args.ce_start:args.ce_end] + prev_best_intron2 + prev_best_cds[
-                                                                                                         args.ce_end:] +
-                                          prev_best_3utr)
-                    new_combined_seq = prev_best_sequence
 
                 new_seqs.append(new_combined_seq)
 
             acceptor_probs, donor_probs = get_probs(new_seqs, good_contexts=good_contexts, context_seqs=context_seqs,
                                                     dont_use_contexts=args.dont_use_contexts)
 
-            # TODO: Create dictionaries with the expected value, and the weight, for each sequence type.
-            # It should then be possible to massively simplify the score contribution stuff here, possibly
-            # just to two lines
-            # e.g. for i in range(): score[i] = array[4,i] * weight_d[array[1, i]] * expected_val[array[1, i]]
-
             all_scores = {}
             for seq_no in range(args.n_seqs_per_it):
-                score_contribution_array = make_score_contribution_array(transcript_structure_array,
-                                                                         donor_probs[seq_no, :],
-                                                                         acceptor_probs[seq_no, :])
+                score_contribution_array = \
+                    make_score_contribution_array(transcript_structure_array,
+                                                  donor_probs[seq_no, :],
+                                                  acceptor_probs[seq_no, :],
+                                                  target_const_donor=args.target_const_donor,
+                                                  target_const_acceptor=args.target_const_acc,
+                                                  target_cryptic_donor=args.target_cryptic_donor,
+                                                  target_cryptic_acceptor=args.target_cryptic_acc,
+                                                  target_alternative_donor=args.target_const_donor,
+                                                  target_alternative_acceptor=args.target_const_acc,
+                                                  ce_score_weight=args.ce_score_weight,
+                                                  alt_score_weight=args.alt_weight,
+                                                  alt_5p=args.alt_5p,
+                                                  alt_3p=args.alt_3p)
 
-                acceptor_prob = acceptor_probs[seq_no, :]
-                donor_prob = donor_probs[seq_no, :]
-                seq_length = len(acceptor_prob)
-                score_contribution_array = np.zeros(
-                    (2, seq_length))  # This stores the contribution of each position to the score
-
-                if not args.one_intron:  # two introns...
-                    for seq_pos in range(seq_length):
-                        if seq_pos == intron1_start - 1:  # i.e. this is the position of the constant donor
-                            score_contribution_array[0, seq_pos] = abs(donor_prob[seq_pos] - args.target_const_donor)
-                            score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                        elif seq_pos == intron1_end:  # i.e. this is the position of the constant acceptor
-                            score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
-                            score_contribution_array[1, seq_pos] = abs(acceptor_prob[seq_pos] - args.target_const_acc)
-
-                        elif seq_pos == intron2_start - 1:
-                            score_contribution_array[0, seq_pos] = abs(
-                                donor_prob[seq_pos] - args.target_cryptic_donor) * args.ce_score_weight
-                            score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                        elif seq_pos == intron2_end:
-                            score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
-                            score_contribution_array[1, seq_pos] = abs(
-                                acceptor_prob[seq_pos] - args.target_cryptic_acc) * args.ce_score_weight
-
-                        elif seq_pos in dont_want_ss:
-                            if seq_pos > 0:
-                                score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
-                            score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                else:  # only one intron
-                    if args.ir:
-                        for seq_pos in range(seq_length):
-                            if seq_pos == intron1_start - 1:  # i.e. this is the position of the constant donor
-                                score_contribution_array[0, seq_pos] = abs(
-                                    donor_prob[seq_pos] - args.target_const_donor)
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                            elif seq_pos == intron1_end:  # i.e. this is the position of the constant acceptor
-                                score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
-                                score_contribution_array[1, seq_pos] = abs(
-                                    acceptor_prob[seq_pos] - args.target_const_acc)
-
-                            elif seq_pos in dont_want_ss:
-                                if seq_pos > 0:
-                                    score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                    elif args.alt_5p:
-                        # Alternative, i.e. constitutive, donor will be somewhere else
-                        if args.alt_position == "in_intron":
-                            valid_positions = [k for k in range(intron1_start, intron1_end - args.min_intron_l)]
-                        elif args.alt_position == "in_exon":
-                            valid_positions = [k for k in
-                                               range(args.alt_5p_start_trim, intron1_start - args.min_alt_dist)]
-
-                        # Identify the strongest donor to act as alternative splice site in valid region
-                        const_donor_pos = \
-                            [k for k in valid_positions if
-                             donor_prob[k] == max([donor_prob[j] for j in valid_positions])][
-                                0]
-
-                        for seq_pos in range(seq_length):
-                            if seq_pos == intron1_start - 1:  # i.e. this is the position of the cryptic (not constant!) donor
-                                score_contribution_array[0, seq_pos] = abs(
-                                    donor_prob[seq_pos] - args.target_cryptic_donor) * args.ce_score_weight
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                            elif seq_pos == intron1_end:  # i.e. this is the position of the constant acceptor
-                                score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
-                                score_contribution_array[1, seq_pos] = abs(
-                                    acceptor_prob[seq_pos] - args.target_const_acc)
-
-                            elif seq_pos == const_donor_pos:
-                                score_contribution_array[0, seq_pos] = abs(
-                                    donor_prob[seq_pos] - args.target_const_donor) * args.alt_weight
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                            elif seq_pos in dont_want_ss:
-                                if seq_pos > 0:
-                                    score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                    elif args.alt_3p:
-                        # Alternative, i.e. constitutive, donor will be somewhere else
-                        if args.alt_position == "in_intron":
-                            valid_positions = [k for k in range(intron1_start + args.min_intron_l, intron1_end)]
-                        elif args.alt_position == "in_exon":
-                            valid_positions = [k for k in
-                                               range(intron1_end + args.min_alt_dist, total_l - args.alt_3p_end_trim)]
-
-                        const_acceptor_pos = [k for k in valid_positions if
-                                              acceptor_prob[k] == max([acceptor_prob[j] for j in valid_positions])][0]
-
-                        for seq_pos in range(seq_length):
-                            if seq_pos == intron1_start - 1:  # i.e. this is the position of the constant donor
-                                score_contribution_array[0, seq_pos] = abs(
-                                    donor_prob[seq_pos] - args.target_constant_donor)
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                            elif seq_pos == intron1_end:  # i.e. this is the position of the cryptic acceptor
-                                score_contribution_array[0, seq_pos] = donor_prob[seq_pos]
-                                score_contribution_array[1, seq_pos] = abs(
-                                    acceptor_prob[seq_pos] - args.target_cryptic_acc) * args.ce_score_weight
-
-                            elif seq_pos == const_acceptor_pos:
-                                score_contribution_array[0, seq_pos] = abs(
-                                    donor_prob[seq_pos] - args.target_const_acc) * args.alt_weight
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                            elif seq_pos in dont_want_ss:
-                                if seq_pos > 0:
-                                    score_contribution_array[0, seq_pos] = donor_prob[seq_pos - 1]
-                                score_contribution_array[1, seq_pos] = acceptor_prob[seq_pos]
-
-                score = -np.sum(score_contribution_array)
+                score = 2 - np.sum(score_contribution_array)
                 all_scores[seq_no] = [score, score_contribution_array]
 
             # find the best sequence
             best_seq_no = max(all_scores, key=lambda k: all_scores[k][0])
             score = all_scores[best_seq_no][0]
-            new_combined_seq = new_seqs_ds[best_seq_no]["seq"]
-
+            this_best_seq = new_seqs[best_seq_no]
             this_best_acceptor_prob = acceptor_probs[best_seq_no, :]  # note this is the probs across whole sequence
             this_best_donor_prob = donor_probs[best_seq_no, :]
 
@@ -973,16 +825,11 @@ def main():
 
             if i == 0 and args.track_splice_scores:
                 print("writing")
-                write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
+                write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, this_best_seq,
                                  splice_score_tracker_filename)
 
             if score > best_score + args.min_improvement:
-                prev_best_5utr = new_seqs_ds[best_seq_no]["separate_parts_d"]["utr5"]
-                prev_best_intron1 = new_seqs_ds[best_seq_no]["separate_parts_d"]["intron1"]
-                prev_best_intron2 = new_seqs_ds[best_seq_no]["separate_parts_d"]["intron2"]
-                prev_best_3utr = new_seqs_ds[best_seq_no]["separate_parts_d"]["utr3"]
-                prev_best_cds = new_seqs_ds[best_seq_no]["separate_parts_d"]["cds"]
-                prev_best_score_contribution_array = this_best_score_contribution_array
+                best_score_contribution_array = this_best_score_contribution_array
 
                 if i > 0 and args.track_splice_scores:
                     write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
@@ -993,9 +840,7 @@ def main():
                 best_acceptor_prob = this_best_acceptor_prob
                 bored = 0
                 print(score)
-                if args.alt_5p:
-                    print(' '.join(
-                        [str(const_donor), str(cryptic_donor), str(const_acceptor), str(bad_acc), str(bad_don)]))
+
             else:
                 if bored > args.early_stop:
                     break
