@@ -843,7 +843,7 @@ def main():
                     write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
                                      splice_score_tracker_filename)
                 best_score = score
-                best_seq = new_combined_seq
+                best_seq = this_best_seq
                 best_donor_prob = this_best_donor_prob
                 best_acceptor_prob = this_best_acceptor_prob
                 bored = 0
