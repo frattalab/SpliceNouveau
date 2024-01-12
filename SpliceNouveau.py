@@ -44,12 +44,12 @@ if load_tf:
         donor_prob = y[:, :, 2]
 
         # Shift acceptor probabilities so that they align correctly (at the G of the AG)
-        acceptor_prob = np.roll(acceptor_prob, -1)
-        acceptor_prob[-1] = 0
+        acceptor_prob = np.roll(acceptor_prob, shift=-1, axis=1)
+        acceptor_prob[:, -1] = 0
 
         # Shift donor probabilities so that they align correctly (at the G of the GT)
-        donor_prob = np.roll(donor_prob, 1)
-        donor_prob[0] = 0
+        donor_prob = np.roll(donor_prob, shift=1, axis=1)
+        donor_prob[:, 0] = 0
 
         return acceptor_prob, donor_prob
 
@@ -359,6 +359,8 @@ def get_args():
     parser.add_argument('--three_p_but_no_pptness', default=False, action='store_true',
                         help='By default, when using alt 3prime mode, it generates a pyrmidine-rich coding sequence. '
                              'Use this flag to turn off this behaviour.')
+    parser.add_argument('--conv_window_size', default=9, type=int, help='When prioritising which positions to \
+     mutate, this is the with the the triangular convolution window. Larger values spread this across a larger region')
 
     args = parser.parse_args()
 
@@ -443,7 +445,7 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
     weight_d = {0: 0, 1: CDS_mut_weight, 2: ce_mut_weight, 3: intron_mut_weight * 3, 4: 0}
 
     # Normalise contribution array so the max value is 1
-    prev_best_score_contribution_array = prev_best_score_contribution_array / max(prev_best_score_contribution_array)
+    prev_best_score_contribution_array = prev_best_score_contribution_array / np.max(prev_best_score_contribution_array)
 
     chances = []
     for i in range(len(transcript_structure_array[0, :])):
@@ -455,6 +457,9 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
     chances = np.asarray(chances)
     triangle_filter = np.convolve(np.ones(convolution_window_size), np.ones(convolution_window_size), mode='full')
     smoothed_chances = np.convolve(chances, triangle_filter, mode='same') / np.sum(triangle_filter)
+
+    # Set anything that can't be mutated to zero
+    smoothed_chances = smoothed_chances * transcript_structure_array[0, :]
 
     position_to_mutate = random.choices(list(range(len(prev_best_sequence))),
                                         k=1,
@@ -677,7 +682,7 @@ def make_score_contribution_array(transcript_structure_array, donor_probs, accep
     target_acceptor_values_d = {0: 0, 1: 0, 2: target_const_acceptor, 3: 0, 4: target_cryptic_acceptor, 5: 0,
                                 6: target_alternative_acceptor}
 
-    scoring_weights_d = {0: 1, 1: 0, 2: 0, 3: ce_score_weight, 4: ce_score_weight, 5: alt_score_weight,
+    scoring_weights_d = {0: 1, 1: 1, 2: 1, 3: ce_score_weight, 4: ce_score_weight, 5: alt_score_weight,
                          6: alt_score_weight}
 
     for seq_pos in range(seq_length):
@@ -692,6 +697,8 @@ def make_score_contribution_array(transcript_structure_array, donor_probs, accep
         score_contribution_array[1, seq_pos] = transcript_structure_array[3, seq_pos] * \
                                                abs(acceptor_probs[seq_pos] - target_acceptor_values_d[position_type]) * \
                                                scoring_weights_d[position_type]
+
+    score_contribution_array = np.sum(score_contribution_array, axis=0)
 
     return score_contribution_array
 
@@ -786,7 +793,8 @@ def main():
                                                        transcript_structure_array,
                                                        best_score_contribution_array,
                                                        args.mutate_bad_regions_factor,
-                                                       args.ce_mut_weight, args.CDS_mut_weight, args.intron_mut_weight)
+                                                       args.ce_mut_weight, args.CDS_mut_weight, args.intron_mut_weight,
+                                                       args.conv_window_size)
 
 
                 new_seqs.append(new_combined_seq)
