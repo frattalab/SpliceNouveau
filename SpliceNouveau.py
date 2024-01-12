@@ -432,7 +432,8 @@ def mut_noncoding(seq, positions_to_mut, n_mut):
 
 
 def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_score_contribution_array,
-					mutate_bad_regions_factor, ce_mut_weight, CDS_mut_weight, intron_mut_weight):
+					mutate_bad_regions_factor, ce_mut_weight, CDS_mut_weight, intron_mut_weight,
+					convolution_window_size):
 
 	# Create dictionary with assignments linked to third row of transcript_structure_array
 	# Intron is weighted 3-fold because there is much more freedom in intron
@@ -446,11 +447,13 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
 		# chance = can_be_mutated * (1 + factor * score_contribution * weight_for_this_type_of_sequence)
 		chances.append(transcript_structure_array[0, i] * (1 + mutate_bad_regions_factor * prev_best_score_contribution_array[i] * weight_d[transcript_structure_array[2, i]]))
 
-	# TODO - apply a convolution to chances so that it's spread over nearby positions
+	chances = np.asarray(chances)
+	triangle_filter = np.convolve(np.ones(convolution_window_size), np.ones(convolution_window_size), mode='full')
+	smoothed_chances = np.convolve(chances, triangle_filter, mode='same') / np.sum(triangle_filter)
 
 	position_to_mutate = random.choices(list(range(len(prev_best_sequence))),
 										 k=1,
-										 weights=chances)[0]
+										 weights=smoothed_chances)[0]
 
 	# What type of region is this?
 	position_type = transcript_structure_array[2, position_to_mutate]
@@ -461,7 +464,7 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
 		new_seq = list(prev_best_sequence)
 		new_seq[position_to_mutate] = random.choice(new_nts)
 		new_seq = ''.join(new_seq)
-		return new_seq
+
 
 	else:  # it's a coding sequence
 		current_codon_pos = transcript_structure_array[5, position_to_mutate]
@@ -478,7 +481,8 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
 			new_seq[p] = new_codon[i]
 
 		new_seq = ''.join(new_seq)
-		return new_seq
+
+	return new_seq
 
 
 def mutate_all(prev_best_5utr, prev_best_cds, prev_best_intron1, prev_best_intron2, prev_best_3utr, args,
@@ -612,13 +616,14 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 				this_type = 'downstream_cds'
 
 			else:
-				assert 0==1, 'unexpected position'
+				assert 0 == 1, 'unexpected position'
 
 			if this_type in ['upstream_cds, CE, downstrem_cds']:
 				codon_pos = cds_counter//3 + 0.1*(cds_counter % 3)
 				transcript_structure_array[5, i] = codon_pos
 			else:
-				codon_pos = -1
+				codon_pos = -1  # not a codon
+				transcript_structure_array[5, i] = codon_pos
 
 		else:
 			this_type = 'three_utr'
@@ -663,6 +668,44 @@ def make_transcript_structure_array(five_utr, cds, intron1, intron2, three_utr, 
 			transcript_structure_array[4, len(five_utr)+ce_start+min_intron_l:len(five_utr) + ce_start + len(intron1) - min_alt_distance] = 1
 
 	return transcript_structure_array
+
+
+def make_score_contribution_array(transcript_structure_array, donor_probs, acceptor_probs, target_const_donor,
+								  target_const_acceptor, target_cryptic_donor, target_cryptic_acceptor,
+								  target_alternative_donor, target_alternative_acceptor, ce_score_weight,
+								  alt_score_weight):
+	"""
+	"""
+	seq_length = len(donor_probs)
+
+	score_contribution_array = np.zeros((2, seq_length))
+
+	target_donor_values_d = {0: 0, 1: target_const_donor, 2: 0, 3: target_cryptic_donor, 4: 0,
+							 5: target_alternative_donor, 6:0}
+
+	target_acceptor_values_d = {0: 0, 1: 0, 2: target_const_acceptor, 3: 0, 4: target_cryptic_acceptor, 5:0,
+								6: target_alternative_acceptor}
+
+	scoring_weights_d = {0: 1, 1: 0, 2: 0, 3: ce_score_weight, 4: ce_score_weight, 5: alt_score_weight,
+						 6: alt_score_weight}
+
+	for seq_pos in range(seq_length):
+		position_type = transcript_structure_array[1, seq_pos]
+
+		# contribution = is_position_scored * abs(target - actual) * score_weight
+
+		score_contribution_array[0, seq_pos] = transcript_structure_array[3, seq_pos] * \
+						abs(donor_probs[seq_pos] - target_donor_values_d[position_type]) * \
+			scoring_weights_d[position_type]
+
+		score_contribution_array[1, seq_pos] = transcript_structure_array[3, seq_pos] * \
+						abs(acceptor_probs[seq_pos] - target_acceptor_values_d[position_type]) * \
+			scoring_weights_d[position_type]
+
+	return score_contribution_array
+
+
+
 
 
 def main():
@@ -776,9 +819,18 @@ def main():
 			# just to two lines
 			# e.g. for i in range(): score[i] = array[4,i] * weight_d[array[1, i]] * expected_val[array[1, i]]
 
-			# Is it good??
 			all_scores = {}
 			for seq_no in range(args.n_seqs_per_it):
+				score_contribution_array = make_score_contribution_array(transcript_structure_array,
+																		 donor_probs[seq_no, :],
+																		 acceptor_probs[seq_no, :])
+
+
+
+
+
+
+
 				acceptor_prob = acceptor_probs[seq_no, :]
 				donor_prob = donor_probs[seq_no, :]
 				seq_length = len(acceptor_prob)
@@ -917,7 +969,6 @@ def main():
 				prev_best_3utr = new_seqs_ds[best_seq_no]["separate_parts_d"]["utr3"]
 				prev_best_cds = new_seqs_ds[best_seq_no]["separate_parts_d"]["cds"]
 				prev_best_score_contribution_array = this_best_score_contribution_array
-				mutagenesis_weights = make_mutagenesis_weights(prev_best_score_contribution_array,)
 
 
 
