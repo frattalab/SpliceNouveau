@@ -263,168 +263,6 @@ def mut_cds(old_cds, mut_n, mut_start, mut_end, pptness=False):
     assert 0 == 1, "Unable to make new sequence"
 
 
-def get_args():
-    parser = argparse.ArgumentParser()
-    # parser.add_argument("-c", "--csv", type=str, required=True,
-    #                   help="A csv that contains all the sequence details")
-    parser.add_argument("-n", "--n_iterations_per_attempt", default=1000, type=int)
-    parser.add_argument("-a", "--attempts", default=1, type=int, help="The number of evolution attempts")
-    parser.add_argument("-e", "--early_stop", default=200, type=int, help="The number of iterations with no "
-                                                                          "improvement before stopping")
-    parser.add_argument("-o", "--output", required=True, type=str, help="output value")
-    parser.add_argument("--aa", type=str, required=False,
-                        help="The amino acid sequence encoded", default="generate_it")
-    parser.add_argument("--initial_cds", type=str, required=True,
-                        help="The initial CDS sequence, WITHOUT stop codon - state generate_it to make it")
-    parser.add_argument("--initial_intron1", type=str, required=True)
-    parser.add_argument("--initial_intron2", type=str, required=False, default="")
-    parser.add_argument("--five_utr", default="")
-    parser.add_argument("--three_utr", default="TAA")
-    parser.add_argument("--ignore_start", default=0, type=int,
-                        help="Ignore nucleotides before this. Eg ignore_start=100 would ignore the "
-                             "first 100 nucleotides when scoring sequences")
-    parser.add_argument("--ignore_end", default=0, type=int,
-                        help="Ignore nucleotides after this. Eg ignore_end=100 would ignore the last 100 nucleotides "
-                             "when scoring sequences")
-    parser.add_argument("--ce_start", type=int, required=True,
-                        help="The position (0 based) of the first CE nucleotide in the CDS. Also use this for "
-                             "defining the splice site position within CDS when using --one_intron mode.")
-    parser.add_argument("--ce_end", type=int, required=False, default=0,
-                        help="The position (0 based) of the last CE nucleotide in the CDS")
-    parser.add_argument('--mutate_bad_regions_factor', type=float, default=10,
-                        help='Regions which score badly are more likely to be mutated. Higher value results in '
-                             'stronger bias towards mutating regions which score badly. 0 sets this to off.')
-    parser.add_argument("--ce_mut_weight", type=float, default=1,
-                        help="Chance per iteration that CE is mutated")
-    parser.add_argument("--ce_mut_n", type=int, default=1,
-                        help="Number of mutations per iteration")
-    parser.add_argument("--CDS_mut_weight", type=float, default=1,
-                        help="Chance per iteration that non-CE CDS is mutated")
-    parser.add_argument("--upstream_mut_n", type=int, default=1,
-                        help="Number of mutations per iteration")
-    parser.add_argument("--downstream_mut_n", type=int, default=1,
-                        help="Number of mutations per iteration")
-    parser.add_argument("--intron_mut_weight", default=1, type=float)
-    parser.add_argument("--intron1_mut_n", default=1, type=int)
-    parser.add_argument("--intron2_mut_n", default=1, type=int)
-    parser.add_argument("--target_const_donor", default=1, type=float, help="Target spliceAI for upstream/IR donor")
-    parser.add_argument("--target_const_acc", default=1, type=float,
-                        help="Target spliceAI score for downstream/IR acceptor")
-    parser.add_argument("--target_cryptic_donor", default=0.3, type=float)
-    parser.add_argument("--target_cryptic_acc", default=0.3, type=float)
-    parser.add_argument("--pyrimidine_chance", default=0.85, type=float, help="When replacing 'P's, the chance "
-                                                                              "of a C or a T")
-    parser.add_argument("--min_improvement", default=0, type=float, help="Minimum improvement to be selected for")
-    parser.add_argument("--cds_mut_start_trim", default=0, type=int, help="Don't mutate the first N nucleotides of CDS")
-    parser.add_argument("--cds_mut_end_trim", default=0, type=int, help="Don't mutation the last N nucleotides of CDS")
-    parser.add_argument("--skip_tf", action="store_true")
-    parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--ce_score_weight", default=2, type=float,
-                        help="Increase the weighting of the cryptic exon. Default is 2")
-    parser.add_argument("--one_intron", action="store_true", help="Use if only wanting a single intron")
-    parser.add_argument("--ir", action="store_true", help="Only interested in intron retention")
-    parser.add_argument("--alt_5p", action="store_true", help="Use alternative 5p (donor) splice sites")
-    parser.add_argument("--alt_3p", action="store_true", help="Use alternative 3p (acceptor) splice sites")
-    parser.add_argument("--alt_position", type=str, default="",
-                        help="When using --alt_5p or --alt_3p, either 'in_intron' or 'in_exon'")
-    parser.add_argument("--min_intron_l", type=int, default=70,
-                        help="Minimum intron length, when using --alt_3p or --alt_5p")
-    parser.add_argument("--alt_5p_start_trim", type=int, default=0,
-                        help="When using --alt_5p and --alt_position in_exon,"
-                             " this is the first position at which the "
-                             " donor can be")
-    parser.add_argument("--alt_3p_end_trim", type=int, default=0, help="When using --alt_3p and --alt_position in_exon,"
-                                                                       " this is the last position at which the "
-                                                                       "acceptor can be. It trims from the end,"
-                                                                       " e.g. 100 would mean it won't look in "
-                                                                       "the last 100 bases")
-    parser.add_argument("--min_alt_dist", type=int, default=1,
-                        help="Minimum distance between repressed and alternative splice site. "
-                             "Only applicable when using --alt_3p or --alt_5p")
-    parser.add_argument("--alt_weight", type=float, default=2,
-                        help="Weight of the non-repressed (alternative) splice site in scoring")
-    parser.add_argument("--make_codons_ppt", action="store_true", help="Will convert the mutated downstream (for alt_3p) region to a \
-		polypyrimidine rich region")
-    parser.add_argument("--track_splice_scores", action="store_true", default=False,
-                        help="Write out splice scores each time it improves")
-    parser.add_argument("--n_seqs_per_it", type=int, help="How many sequences to try in parallel per iteration; "
-                                                          "higher numbers will help reduce mutational load",
-                        default=16)
-    parser.add_argument("--context_dir", default="data/", help="location ")
-    parser.add_argument('--dont_use_contexts', default=False, action='store_true', help='Use this command '
-                                                                                        'to avoid using the additional '
-                                                                                        'contextual flanking sequences'
-                                                                                        ' i.e. behave like the original '
-                                                                                        'versions of SpliceNouveau.')
-    parser.add_argument('--three_p_but_no_pptness', default=False, action='store_true',
-                        help='By default, when using alt 3prime mode, it generates a pyrmidine-rich coding sequence. '
-                             'Use this flag to turn off this behaviour.')
-    parser.add_argument('--conv_window_size', default=9, type=int, help='When prioritising which positions to \
-     mutate, this is the with the the triangular convolution window. Larger values spread this across a larger region')
-
-    args = parser.parse_args()
-
-    args.initial_cds = args.initial_cds.upper()
-
-    if args.initial_cds == "GENERATE_IT":
-        args.initial_cds = make_nt_seq(args.aa)
-
-    if args.aa == "generate_it":
-        args.aa = translate_cds(args.initial_cds)
-
-    if args.ir or args.alt_5p or args.alt_3p:
-        print("Setting option --one_intron to True")
-        args.one_intron = True
-
-    if args.ir:
-        print("Using only ce_start")
-        args.ce_end = args.ce_start
-
-        if args.target_const_donor > 0.9 or args.target_const_acc > 0.9:
-            print("Warning! Intron retention may be improved by specifying weaker 'constitutive' splice sites")
-
-    if args.alt_5p or args.alt_3p:
-        assert args.alt_position in ["in_intron", "in_exon"], "Must choose a valid option for --alt_position!"
-        assert args.ignore_start <= args.alt_5p_start_trim, "Need to tweak your trim settings"
-        assert args.ignore_end <= args.alt_3p_end_trim, "Need to tweak your trim settings"
-    else:
-        assert args.alt_position == "", "Can only use alt_position in conjunction with alt_5p or alt_3p!"
-
-    if args.one_intron:
-        assert len(args.initial_intron2) == 0, "If using just one intron, intron2 must not be supplied!"
-        assert args.intron2_mut_chance == 0, "If using just one intron, intron2 cannot be mutated..."
-        assert args.ir or args.alt_5p or args.alt_3p, "Need to use --ir, --alt_5p or --alt_3p!"
-        assert int(args.ir) + int(args.alt_5p) + int(args.alt_3p) == 1, "Must only select one of --ir, --alt_5p or " \
-                                                                        "--alt_3p!"
-        args.ce_mut_chance = 0
-    else:
-        assert len(args.initial_intron2) > 0, "Need to supply an intron"
-
-    assert args.pyrimidine_chance <= 1
-    assert args.intron1_mut_chance <= 1
-    assert args.intron2_mut_chance <= 1
-
-    print(args.initial_cds)
-    print(args.aa)
-
-    assert len(args.initial_cds) == 3 * len(args.aa)
-    assert args.ce_end < len(args.initial_cds)
-    assert "N" not in args.initial_cds.upper()
-    # assert args.three_utr[0:3] in ["TAG", "TAA", "TGA"], "three prime UTR should start with a stop codon"
-    assert translate_cds(args.initial_cds) == args.aa
-    if not args.overwrite:
-        assert False == (exists(args.output)), "Use a different name file or delete previous output!"
-
-    assert args.min_intron_l <= len(args.initial_intron1), "Intron 1 is too short!"
-    if not args.one_intron:
-        assert args.min_intron_l <= len(args.initial_intron2), "Intron 2 is too short!"
-        assert args.ce_start < args.ce_end
-        if (args.ce_end - args.ce_start) % 3 == 0:
-            print("WARNING - cryptic exon does not induce frame shift!")
-
-    return args
-
-
 def mut_noncoding(seq, positions_to_mut, n_mut):
     assert len([1 for a in list(seq) if a.islower()]) > 0, "Only lower case bases can be mutated!"
 
@@ -450,6 +288,7 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
     chances = []
     for i in range(len(transcript_structure_array[0, :])):
         # chance = can_be_mutated * (1 + factor * score_contribution * weight_for_this_type_of_sequence)
+
         chances.append(transcript_structure_array[0, i] * (
                 1 + mutate_bad_regions_factor * prev_best_score_contribution_array[i] * weight_d[
             transcript_structure_array[2, i]]))
@@ -477,6 +316,7 @@ def mutate_sequence(prev_best_sequence, transcript_structure_array, prev_best_sc
 
     else:  # it's a coding sequence
         current_codon_pos = transcript_structure_array[5, position_to_mutate]
+
         codon_number = int(current_codon_pos)
 
         positions_of_this_codon_in_sequence = [i for i in range(len(prev_best_sequence)) if
@@ -698,9 +538,175 @@ def make_score_contribution_array(transcript_structure_array, donor_probs, accep
                                                abs(acceptor_probs[seq_pos] - target_acceptor_values_d[position_type]) * \
                                                scoring_weights_d[position_type]
 
+    #         if position_type == 3:
+    #             print('info:')
+    #             print(donor_probs[seq_pos])
+    #             print(target_donor_values_d[position_type])
+    #             print(scoring_weights_d[position_type])
+    #             print(score_contribution_array[0, seq_pos])
+    #             print('')
+
     score_contribution_array = np.sum(score_contribution_array, axis=0)
 
     return score_contribution_array
+
+
+def get_args(arguments):
+    parser = argparse.ArgumentParser()
+    # parser.add_argument("-c", "--csv", type=str, required=True,
+    #                   help="A csv that contains all the sequence details")
+    parser.add_argument("-n", "--n_iterations_per_attempt", default=1000, type=int)
+    parser.add_argument("-a", "--attempts", default=1, type=int, help="The number of evolution attempts")
+    parser.add_argument("-e", "--early_stop", default=200, type=int, help="The number of iterations with no "
+                                                                          "improvement before stopping")
+    parser.add_argument("-o", "--output", required=True, type=str, help="output value")
+    parser.add_argument("--aa", type=str, required=False,
+                        help="The amino acid sequence encoded", default="generate_it")
+    parser.add_argument("--initial_cds", type=str, required=True,
+                        help="The initial CDS sequence, WITHOUT stop codon - state generate_it to make it")
+    parser.add_argument("--initial_intron1", type=str, required=True)
+    parser.add_argument("--initial_intron2", type=str, required=False, default="")
+    parser.add_argument("--five_utr", default="")
+    parser.add_argument("--three_utr", default="TAA")
+    parser.add_argument("--ignore_start", default=0, type=int,
+                        help="Ignore nucleotides before this. Eg ignore_start=100 would ignore the "
+                             "first 100 nucleotides when scoring sequences")
+    parser.add_argument("--ignore_end", default=0, type=int,
+                        help="Ignore nucleotides after this. Eg ignore_end=100 would ignore the last 100 nucleotides "
+                             "when scoring sequences")
+    parser.add_argument("--ce_start", type=int, required=True,
+                        help="The position (0 based) of the first CE nucleotide in the CDS. Also use this for "
+                             "defining the splice site position within CDS when using --one_intron mode.")
+    parser.add_argument("--ce_end", type=int, required=False, default=0,
+                        help="The position (0 based) of the last CE nucleotide in the CDS")
+    parser.add_argument('--mutate_bad_regions_factor', type=float, default=20,
+                        help='Regions which score badly are more likely to be mutated. Higher value results in '
+                             'stronger bias towards mutating regions which score badly. 0 sets this to off.')
+    parser.add_argument("--ce_mut_weight", type=float, default=1,
+                        help="Chance per iteration that CE is mutated")
+    parser.add_argument("--ce_mut_n", type=int, default=1,
+                        help="Number of mutations per iteration")
+    parser.add_argument("--CDS_mut_weight", type=float, default=1,
+                        help="Chance per iteration that non-CE CDS is mutated")
+    parser.add_argument("--upstream_mut_n", type=int, default=1,
+                        help="Number of mutations per iteration")
+    parser.add_argument("--downstream_mut_n", type=int, default=1,
+                        help="Number of mutations per iteration")
+    parser.add_argument("--intron_mut_weight", default=1, type=float)
+    parser.add_argument("--target_const_donor", default=1, type=float, help="Target spliceAI for upstream/IR donor")
+    parser.add_argument("--target_const_acc", default=1, type=float,
+                        help="Target spliceAI score for downstream/IR acceptor")
+    parser.add_argument("--target_cryptic_donor", default=0.3, type=float)
+    parser.add_argument("--target_cryptic_acc", default=0.3, type=float)
+    parser.add_argument("--pyrimidine_chance", default=0.85, type=float, help="When replacing 'P's, the chance "
+                                                                              "of a C or a T")
+    parser.add_argument("--min_improvement", default=0, type=float, help="Minimum improvement to be selected for")
+    parser.add_argument("--cds_mut_start_trim", default=0, type=int, help="Don't mutate the first N nucleotides of CDS")
+    parser.add_argument("--cds_mut_end_trim", default=0, type=int, help="Don't mutation the last N nucleotides of CDS")
+    parser.add_argument("--skip_tf", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--ce_score_weight", default=2, type=float,
+                        help="Increase the weighting of the cryptic exon. Default is 2")
+    parser.add_argument("--one_intron", action="store_true", help="Use if only wanting a single intron")
+    parser.add_argument("--ir", action="store_true", help="Only interested in intron retention")
+    parser.add_argument("--alt_5p", action="store_true", help="Use alternative 5p (donor) splice sites")
+    parser.add_argument("--alt_3p", action="store_true", help="Use alternative 3p (acceptor) splice sites")
+    parser.add_argument("--alt_position", type=str, default="",
+                        help="When using --alt_5p or --alt_3p, either 'in_intron' or 'in_exon'")
+    parser.add_argument("--min_intron_l", type=int, default=70,
+                        help="Minimum intron length, when using --alt_3p or --alt_5p")
+    parser.add_argument("--alt_5p_start_trim", type=int, default=0,
+                        help="When using --alt_5p and --alt_position in_exon,"
+                             " this is the first position at which the "
+                             " donor can be")
+    parser.add_argument("--alt_3p_end_trim", type=int, default=0, help="When using --alt_3p and --alt_position in_exon,"
+                                                                       " this is the last position at which the "
+                                                                       "acceptor can be. It trims from the end,"
+                                                                       " e.g. 100 would mean it won't look in "
+                                                                       "the last 100 bases")
+    parser.add_argument("--min_alt_dist", type=int, default=1,
+                        help="Minimum distance between repressed and alternative splice site. "
+                             "Only applicable when using --alt_3p or --alt_5p")
+    parser.add_argument("--alt_weight", type=float, default=2,
+                        help="Weight of the non-repressed (alternative) splice site in scoring")
+    parser.add_argument("--make_codons_ppt", action="store_true", help="Will convert the mutated downstream (for alt_3p) region to a \
+		polypyrimidine rich region")
+    parser.add_argument("--track_splice_scores", action="store_true", default=False,
+                        help="Write out splice scores each time it improves")
+    parser.add_argument("--n_seqs_per_it", type=int, help="How many sequences to try in parallel per iteration; "
+                                                          "higher numbers will help reduce mutational load",
+                        default=16)
+    parser.add_argument("--context_dir", default="data/", help="location ")
+    parser.add_argument('--dont_use_contexts', default=False, action='store_true', help='Use this command '
+                                                                                        'to avoid using the additional '
+                                                                                        'contextual flanking sequences'
+                                                                                        ' i.e. behave like the original '
+                                                                                        'versions of SpliceNouveau.')
+    parser.add_argument('--three_p_but_no_pptness', default=False, action='store_true',
+                        help='By default, when using alt 3prime mode, it generates a pyrmidine-rich coding sequence. '
+                             'Use this flag to turn off this behaviour.')
+    parser.add_argument('--conv_window_size', default=9, type=int, help='When prioritising which positions to \
+    mutate, this is the with the the triangular convolution window. Larger values spread this across a larger region')
+
+    args = parser.parse_args(arguments)
+
+    args.initial_cds = args.initial_cds.upper()
+
+    if args.initial_cds == "GENERATE_IT":
+        args.initial_cds = make_nt_seq(args.aa)
+
+    if args.aa == "generate_it":
+        args.aa = translate_cds(args.initial_cds)
+
+    if args.ir or args.alt_5p or args.alt_3p:
+        print("Setting option --one_intron to True")
+        args.one_intron = True
+
+    if args.ir:
+        print("Using only ce_start")
+        args.ce_end = args.ce_start
+
+        if args.target_const_donor > 0.9 or args.target_const_acc > 0.9:
+            print("Warning! Intron retention may be improved by specifying weaker 'constitutive' splice sites")
+
+    if args.alt_5p or args.alt_3p:
+        assert args.alt_position in ["in_intron", "in_exon"], "Must choose a valid option for --alt_position!"
+        assert args.ignore_start <= args.alt_5p_start_trim, "Need to tweak your trim settings"
+        assert args.ignore_end <= args.alt_3p_end_trim, "Need to tweak your trim settings"
+    else:
+        assert args.alt_position == "", "Can only use alt_position in conjunction with alt_5p or alt_3p!"
+
+    if args.one_intron:
+        assert len(args.initial_intron2) == 0, "If using just one intron, intron2 must not be supplied!"
+        assert args.intron2_mut_chance == 0, "If using just one intron, intron2 cannot be mutated..."
+        assert args.ir or args.alt_5p or args.alt_3p, "Need to use --ir, --alt_5p or --alt_3p!"
+        assert int(args.ir) + int(args.alt_5p) + int(args.alt_3p) == 1, "Must only select one of --ir, --alt_5p or " \
+                                                                        "--alt_3p!"
+        args.ce_mut_chance = 0
+    else:
+        assert len(args.initial_intron2) > 0, "Need to supply an intron"
+
+    assert args.pyrimidine_chance <= 1
+
+    print(args.initial_cds)
+    print(args.aa)
+
+    assert len(args.initial_cds) == 3 * len(args.aa)
+    assert args.ce_end < len(args.initial_cds)
+    assert "N" not in args.initial_cds.upper()
+    # assert args.three_utr[0:3] in ["TAG", "TAA", "TGA"], "three prime UTR should start with a stop codon"
+    assert translate_cds(args.initial_cds) == args.aa
+    if not args.overwrite:
+        assert False == (exists(args.output)), "Use a different name file or delete previous output!"
+
+    assert args.min_intron_l <= len(args.initial_intron1), "Intron 1 is too short!"
+    if not args.one_intron:
+        assert args.min_intron_l <= len(args.initial_intron2), "Intron 2 is too short!"
+        assert args.ce_start < args.ce_end
+        if (args.ce_end - args.ce_start) % 3 == 0:
+            print("WARNING - cryptic exon does not induce frame shift!")
+
+    return args
 
 
 def main():
