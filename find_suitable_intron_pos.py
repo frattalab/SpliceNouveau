@@ -4,7 +4,6 @@ import gzip
 import random
 import argparse
 import sys
-from SpliceNouveau import *
 import os
 
 from keras.models import load_model
@@ -165,21 +164,12 @@ def main():
                         help='Increase to reduce bias towards mutating positions with splice sites')
     parser.add_argument('--num_insertions', type=int, default=100, help='Number of intron positions to try')
     parser.add_argument('--output', required=True, type=str, help='CSV that stores all info')
-    parser.add_argument("--context_dir", default="data/", help="location ")
     parser.add_argument('--percentile', default=70, type=float, help='Percentile above which to store splice site info')
 
     # arguments = '--fasta /camp/home/wilkino/home/spliceai/fake_proteome.fa --output out.csv --context_dir /camp/home/wilkino/home/spliceai/SpliceNouveau_gpu/data/'
     # arguments += ' --n_removal_attempts 1000 --num_insertions 100'
     # args = parser.parse_args(arguments.split())
     args = parser.parse_args()
-
-    # Read in context data
-    context_seqs = []
-    with open(args.context_dir + "20_good_contexts.csv") as file:
-        for line in file:
-            context_seqs.append(line.rstrip())
-
-    good_contexts = pd.read_csv(args.context_dir + "6_good_conditions.csv")
 
     # Read in fasta file:
     fasta_dict = read_fasta(args.fasta)
