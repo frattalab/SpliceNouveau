@@ -166,10 +166,12 @@ def main():
     parser.add_argument('--num_insertions', type=int, default=100, help='Number of intron positions to try')
     parser.add_argument('--output', required=True, type=str, help='CSV that stores all info')
     parser.add_argument("--context_dir", default="data/", help="location ")
+    parser.add_argument('--percentile', default=70, type=float, help='Percentile above which to store splice site info')
 
-    arguments = '--fasta /camp/home/wilkino/home/spliceai/fake_proteome.fa --output out.csv --context_dir /camp/home/wilkino/home/spliceai/SpliceNouveau_gpu/data/'
-    arguments += ' --n_removal_attempts 1000'
-    args = parser.parse_args(arguments.split())
+    # arguments = '--fasta /camp/home/wilkino/home/spliceai/fake_proteome.fa --output out.csv --context_dir /camp/home/wilkino/home/spliceai/SpliceNouveau_gpu/data/'
+    # arguments += ' --n_removal_attempts 1000 --num_insertions 100'
+    # args = parser.parse_args(arguments.split())
+    args = parser.parse_args()
 
     # Read in context data
     context_seqs = []
@@ -185,8 +187,8 @@ def main():
     # Read in the output CSV
 
     if not os.path.exists(args.output):
-        with open(args.output, 'w') as file:
-            file.write('name,sequence,intron_positions')
+        with open(args.output, 'w', newline='') as file:
+            file.write('name,sequence,intron_position,don_score,acc_score\n')
         completed_proteins = []
     else:
         with open(args.output, 'r') as file:
@@ -195,22 +197,21 @@ def main():
                 if i > 0:
                     completed_proteins.append(line.rstrip().split(',')[0])
 
-    while True:
-        still_to_do = [a for a in fasta_dict.keys() if a not in completed_proteins]
+    still_to_do = set([a for a in fasta_dict.keys() if a not in completed_proteins])
+
+    while len(still_to_do) > 0:
 
         if len(still_to_do) == 0:
             print('complete')
             break
 
-        protein_to_do = random.choice(still_to_do)
+        protein_to_do = random.choice(list(still_to_do))
         print(protein_to_do)
 
         ### Phase 1 - remove unwanted splice sites ###
 
         aa_seq = fasta_dict[protein_to_do]
         initial_nt_seq = make_nt_seq(aa_seq)
-
-        print(initial_nt_seq)
 
         new_nt_seq = initial_nt_seq
 
@@ -222,7 +223,10 @@ def main():
 
                 new_nt_seq = mutate_codons(best_nt_seq, aa_seq=aa_seq, start_codon=aa_pos, end_codon=aa_pos, n=1)
 
-            acceptor_probs, donor_probs = get_probs([new_nt_seq], good_contexts=[], context_seqs=[], dont_use_contexts=True)
+                assert translate(new_nt_seq) == aa_seq
+
+            acceptor_probs, donor_probs = get_probs([new_nt_seq], good_contexts=[], context_seqs=[],
+                                                    dont_use_contexts=True)
 
             acceptor_probs = acceptor_probs[0, :]
             donor_probs = donor_probs[0, :]
@@ -231,9 +235,7 @@ def main():
 
             aa_badness_pos = [np.mean(badness_pos[3 * i:3 * i + 3]) for i in range(int(len(new_nt_seq) / 3))]
 
-            # Define the downsampling factor
-            smoothing_factor = 5  # This will downsample to length 30 / 3 = 10
-            # Create a kernel with a stride of 3 for the moving average
+            # Create a kernel for smoothing
             kernel = [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 6.4, 3.2, 1.6, 0.8, 0.4, 0.2, 0.1]
 
             smoothed_aa_badness_pos = np.convolve(aa_badness_pos, kernel, mode='same')
@@ -244,32 +246,62 @@ def main():
                 best_score = score
                 smoothed_aa_badness_pos_best_seq = smoothed_aa_badness_pos
                 best_nt_seq = new_nt_seq
-                print(best_score)
 
                 if score < 0.05:
                     break
 
-        print(best_nt_seq)
-        assert 0 == 1, 'yo'
+        assert 0 == 1
 
         ### Phase 2 - insert introns into random positions and see if they work well ###
 
-        intron_insert_positions = random.sample(np.arange(3 * len(args.aa_seq)), k=args.num_insertions)
+        intron_insert_positions = list(np.arange(min([len(best_nt_seq), args.num_insertions])))
 
-        with open(args.output, 'w') as file:
-            file.write('aa_seq: ' + args.aa_seq + '\n')
-            file.write('nt_seq: ' + best_nt_seq + '\n')
-            file.write('pos,donor,acceptor\n')
-            for intron_insert_position in intron_insert_positions:
-                seq_with_intron = best_nt_seq[0:intron_insert_position] + args.intron + best_nt_seq[intron_insert_position:]
+        intron_pos_d = {}
 
-                acceptor_probs, donor_probs = get_probs(seq_with_intron, good_contexts=good_contexts,
-                                                        context_seqs=context_seqs)
-                acceptor_probs = acceptor_probs[0, :]
-                donor_probs = donor_probs[0, :]
+        for intron_insert_position in intron_insert_positions:
+            seq_with_intron = best_nt_seq[0:intron_insert_position] + args.intron + best_nt_seq[intron_insert_position:]
 
-                # file.write(str(intron_insert_position) + ',' + str(donor_probs[intron_insert_position]) + ',' +
-                #            str(acceptor_probs[intron_insert_position + len(args.intron)]) + '\n')
+            acceptor_probs, donor_probs = get_probs([seq_with_intron], good_contexts=good_contexts,
+                                                    context_seqs=context_seqs)
+            acceptor_probs = acceptor_probs[0, :]
+            donor_probs = donor_probs[0, :]
+
+            don_score = float(donor_probs[intron_insert_position])
+            acc_score = float(acceptor_probs[intron_insert_position - 1 + len(args.intron)])
+
+            intron_pos_d[intron_insert_position] = [don_score, acc_score]
+
+        all_dons = [a[0] for a in intron_pos_d.values()]
+        all_accs = [a[1] for a in intron_pos_d.values()]
+
+        top_dons = set([k for k, a in enumerate(all_dons) if a >= np.percentile(all_dons, args.percentile)])
+        top_accs = set([k for k, a in enumerate(all_accs) if a >= np.percentile(all_accs, args.percentile)])
+
+        top_both = top_dons & top_accs
+
+        j = 0
+        k = -1
+        with open(args.output, 'a', newline='') as file:
+            for key, value in intron_pos_d.items():
+                k += 1
+
+                if k not in top_both:
+                    continue
+
+                don_score = value[0]
+                acc_score = value[1]
+                intron_insert_position = key
+
+                if j == 0:
+                    file.write(','.join([protein_to_do, best_nt_seq, str(intron_insert_position), str(don_score),
+                                         str(acc_score)]) + '\n')
+                else:
+                    file.write(','.join(
+                        [protein_to_do, '', str(intron_insert_position), str(don_score), str(acc_score)]) + '\n')
+
+                j += 1
+
+        still_to_do.discard(protein_to_do)
 
 if __name__ == "__main__":
     main()
