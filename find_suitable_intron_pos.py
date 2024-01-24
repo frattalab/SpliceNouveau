@@ -152,6 +152,32 @@ def make_nt_seq(aa_seq, pptness=False):
 
     return seq
 
+
+def translate(cds):
+    map = {"TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
+           "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
+           "TAT": "Y", "TAC": "Y",
+           "TGT": "C", "TGC": "C", "TGG": "W",
+           "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
+           "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
+           "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
+           "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
+           "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
+           "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
+           "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
+           "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
+           "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
+           "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
+           "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
+           "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G"}
+
+    aa_seq = ""
+    for i in range(int(len(cds) / 3)):
+        aa_seq += map[cds[3 * i:3 * i + 3]]
+
+    return aa_seq
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--fasta', required=True, help='FASTA file with proteome')
@@ -162,7 +188,7 @@ def main():
                         help='The window size, in aa, for smoothing during inital optimisation')
     parser.add_argument('--add_to_all', type=float, default=0.05,
                         help='Increase to reduce bias towards mutating positions with splice sites')
-    parser.add_argument('--num_insertions', type=int, default=100, help='Number of intron positions to try')
+    parser.add_argument('--num_insertions', type=int, default=1000, help='Number of intron positions to try')
     parser.add_argument('--output', required=True, type=str, help='CSV that stores all info')
     parser.add_argument('--percentile', default=70, type=float, help='Percentile above which to store splice site info')
 
@@ -240,8 +266,6 @@ def main():
                 if score < 0.05:
                     break
 
-        assert 0 == 1
-
         ### Phase 2 - insert introns into random positions and see if they work well ###
 
         intron_insert_positions = list(np.arange(min([len(best_nt_seq), args.num_insertions])))
@@ -251,8 +275,8 @@ def main():
         for intron_insert_position in intron_insert_positions:
             seq_with_intron = best_nt_seq[0:intron_insert_position] + args.intron + best_nt_seq[intron_insert_position:]
 
-            acceptor_probs, donor_probs = get_probs([seq_with_intron], good_contexts=good_contexts,
-                                                    context_seqs=context_seqs)
+            acceptor_probs, donor_probs = get_probs([seq_with_intron], good_contexts=[],
+                                                    context_seqs=[], dont_use_contexts=True)
             acceptor_probs = acceptor_probs[0, :]
             donor_probs = donor_probs[0, :]
 
