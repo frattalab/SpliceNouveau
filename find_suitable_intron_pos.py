@@ -191,6 +191,7 @@ def main():
     parser.add_argument('--num_insertions', type=int, default=1000, help='Number of intron positions to try')
     parser.add_argument('--output', required=True, type=str, help='CSV that stores all info')
     parser.add_argument('--percentile', default=70, type=float, help='Percentile above which to store splice site info')
+    parser.add_argument('--nt_fasta', action='store_true', default='False', help='Add this if you are supplying a nucleotide fasta rather than a protein fasta')
 
     # arguments = '--fasta /camp/home/wilkino/home/spliceai/fake_proteome.fa --output out.csv --context_dir /camp/home/wilkino/home/spliceai/SpliceNouveau_gpu/data/'
     # arguments += ' --n_removal_attempts 1000 --num_insertions 100'
@@ -227,7 +228,10 @@ def main():
         ### Phase 1 - remove unwanted splice sites ###
 
         aa_seq = fasta_dict[protein_to_do]
-        initial_nt_seq = make_nt_seq(aa_seq)
+        if args.nt_fasta:
+            initial_nt_seq = aa_seq  # it wasn't actually an AA seq...
+        else:
+            initial_nt_seq = make_nt_seq(aa_seq)
 
         new_nt_seq = initial_nt_seq
 
