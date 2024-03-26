@@ -647,6 +647,8 @@ def get_args(arguments):
                              'Use this flag to turn off this behaviour.')
     parser.add_argument('--conv_window_size', default=9, type=int, help='When prioritising which positions to \
     mutate, this is the with the the triangular convolution window. Larger values spread this across a larger region')
+    parser.add_argument('--initialisations', default=100, type=int, help='At the start, the sequence is initialised '
+                                                                         'this number of times and the best starting point is selected')
 
     args = parser.parse_args(arguments)
 
@@ -760,121 +762,146 @@ def main():
             sst.write("attempt,iteration,position,donor_prob,acceptor_prob,score,sequence\n")
 
     for attempt in range(args.attempts):
-        best_score = -1000
-        print("Attempt " + str(attempt))
-        bored = 0
-        # Replace Ns and Ps
-        starting_5utr = remove_NY(args.five_utr, args.pyrimidine_chance)
-        starting_intron1 = remove_NY(args.initial_intron1, args.pyrimidine_chance)
-        starting_intron2 = remove_NY(args.initial_intron2, args.pyrimidine_chance)
-        starting_3utr = remove_NY(args.three_utr, args.pyrimidine_chance)
-
-        if args.alt_3p:
-            if args.three_p_but_no_pptness:
-                make_like_ppt = False
-            else:
-                make_like_ppt = True
-
-            assert len(
-                args.initial_cds) - 1 - args.cds_mut_end_trim >= args.ce_end + 1, "Need to tweak your mut_cds trims"
-
-            args.initial_cds = mut_cds(args.initial_cds, 1000, args.ce_end + 1,
-                                       len(args.initial_cds) - 1 - args.cds_mut_end_trim,
-                                       pptness=make_like_ppt)
-
-        for i in range(args.n_iterations_per_attempt):
-            bored += 1
-
-
-            new_seqs = []
-            for j in range(args.n_seqs_per_it):
-                if i == 0:
-                    new_combined_seq = starting_5utr + args.initial_cds[0:args.ce_start] + starting_intron1 + \
-                    args.initial_cds[args.ce_start:args.ce_end] + starting_intron2 + \
-                    args.initial_cds[args.ce_end:] + starting_3utr
-
-                if i > 0:
-
-                    new_combined_seq = mutate_sequence(best_seq,
-                                                       transcript_structure_array,
-                                                       best_score_contribution_array,
-                                                       args.mutate_bad_regions_factor,
-                                                       args.ce_mut_weight, args.CDS_mut_weight, args.intron_mut_weight,
-                                                       args.conv_window_size)
-
-
-                new_seqs.append(new_combined_seq)
-
-            acceptor_probs, donor_probs = get_probs(new_seqs, good_contexts=good_contexts, context_seqs=context_seqs,
-                                                    dont_use_contexts=args.dont_use_contexts)
-
-            all_scores = {}
-            for seq_no in range(args.n_seqs_per_it):
-                score_contribution_array = \
-                    make_score_contribution_array(transcript_structure_array,
-                                                  donor_probs[seq_no, :],
-                                                  acceptor_probs[seq_no, :],
-                                                  target_const_donor=args.target_const_donor,
-                                                  target_const_acceptor=args.target_const_acc,
-                                                  target_cryptic_donor=args.target_cryptic_donor,
-                                                  target_cryptic_acceptor=args.target_cryptic_acc,
-                                                  target_alternative_donor=args.target_const_donor,
-                                                  target_alternative_acceptor=args.target_const_acc,
-                                                  ce_score_weight=args.ce_score_weight,
-                                                  alt_score_weight=args.alt_weight,
-                                                  alt_5p=args.alt_5p,
-                                                  alt_3p=args.alt_3p)
-
-                score = 2 - np.sum(score_contribution_array)
-                all_scores[seq_no] = [score, score_contribution_array]
-
-            # find the best sequence
-            best_seq_no = max(all_scores, key=lambda k: all_scores[k][0])
-            score = all_scores[best_seq_no][0]
-            this_best_seq = new_seqs[best_seq_no]
-            this_best_acceptor_prob = acceptor_probs[best_seq_no, :]  # note this is the probs across whole sequence
-            this_best_donor_prob = donor_probs[best_seq_no, :]
-
-            this_best_score_contribution_array = all_scores[best_seq_no][1]
-
-            if i == 0 and args.track_splice_scores:
-                print("writing")
-                write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, this_best_seq,
-                                 splice_score_tracker_filename)
-
-            if score > best_score + args.min_improvement:
-                best_score_contribution_array = this_best_score_contribution_array
-
-                if i > 0 and args.track_splice_scores:
-                    write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
-                                     splice_score_tracker_filename)
-                best_score = score
-                best_seq = this_best_seq
-                best_donor_prob = this_best_donor_prob
-                best_acceptor_prob = this_best_acceptor_prob
+        # Initialise a bunch of sequences then continue after picking the best one
+        for initialise_n in range(args.initialisations + 1):
+            if initialise_n == 0:
+                best_initial_score = -1000
+                best_score = -1000
+                print("Attempt " + str(attempt))
                 bored = 0
-                print(score)
 
+            # Replace Ns and Ps and generate CDS if applicable
+            starting_5utr = remove_NY(args.five_utr, args.pyrimidine_chance)
+            starting_intron1 = remove_NY(args.initial_intron1, args.pyrimidine_chance)
+            starting_intron2 = remove_NY(args.initial_intron2, args.pyrimidine_chance)
+            starting_3utr = remove_NY(args.three_utr, args.pyrimidine_chance)
+
+            if args.initial_cds == "GENERATE_IT":
+                starting_cds = make_nt_seq(args.aa)
             else:
-                if bored > args.early_stop:
-                    break
+                starting_cds = args.initial_cds
 
-        results[attempt] = {'score': best_score, 'sequence': best_seq, 'donor': best_donor_prob,
-                            'acceptor': best_acceptor_prob}
+            if args.alt_3p:
+                if args.three_p_but_no_pptness:
+                    make_like_ppt = False
+                else:
+                    make_like_ppt = True
 
-    with open(args.output, 'w') as file, open(args.output + ".predictions.csv", 'w') as file2:
-        file.write("attempt,score,seq,ce_length,ce_frameshift\n")
-        for key, value in results.items():
-            file.write(str(key) + "," + str(value["score"]) + "," + str(value["sequence"]) + "," + \
-                       str(int(args.ce_end - args.ce_start)) + "," + str((args.ce_end - args.ce_start) % 3 != 0) + "\n")
+                assert len(starting_cds) - 1 - args.cds_mut_end_trim >= args.ce_end + 1, "Need to tweak your mut_cds trims"
 
-        file2.write("attempt,pos,donor,acceptor\n")
-        for key, value in results.items():
-            bruv = 0
+                starting_cds = mut_cds(starting_cds, 1000, args.ce_end + 1,
+                                           len(starting_cds) - 1 - args.cds_mut_end_trim,
+                                           pptness=make_like_ppt)
 
-            for d, a in zip(value["donor"], value["acceptor"]):
-                file2.write(str(key) + "," + str(bruv) + "," + str(d) + "," + str(a) + "\n")
-                bruv += 1
+            for i in range(args.n_iterations_per_attempt):
+                bored += 1
+
+                new_seqs = []
+                for j in range(args.n_seqs_per_it):
+                    if i == 0:  # no mutation
+                        if initialise_n < args.initialisations:
+                            new_combined_seq = starting_5utr + starting_cds[
+                                                                    0:args.ce_start] + starting_intron1 + \
+                                               starting_cds[args.ce_start:args.ce_end] + starting_intron2 + \
+                                               starting_cds[args.ce_end:] + starting_3utr
+                        else:  # initialisation is over, just use best initial sequence
+                            new_combined_seq = best_starting_5utr + best_starting_cds[0:args.ce_start] + best_starting_intron1 + \
+                            best_starting_cds[args.ce_start:args.ce_end] + best_starting_intron2 + \
+                            best_starting_cds[args.ce_end:] + best_starting_3utr
+
+                        new_seqs.append(new_combined_seq)
+                        continue  # only need to make one so break the for loop
+
+                    if i > 0:  # mutate it
+
+                        new_combined_seq = mutate_sequence(best_seq,
+                                                           transcript_structure_array,
+                                                           best_score_contribution_array,
+                                                           args.mutate_bad_regions_factor,
+                                                           args.ce_mut_weight, args.CDS_mut_weight, args.intron_mut_weight,
+                                                           args.conv_window_size)
+
+                        new_seqs.append(new_combined_seq)
+
+                acceptor_probs, donor_probs = get_probs(new_seqs, good_contexts=good_contexts, context_seqs=context_seqs,
+                                                        dont_use_contexts=args.dont_use_contexts)
+
+                all_scores = {}
+                for seq_no in range(args.n_seqs_per_it):
+                    score_contribution_array = \
+                        make_score_contribution_array(transcript_structure_array,
+                                                      donor_probs[seq_no, :],
+                                                      acceptor_probs[seq_no, :],
+                                                      target_const_donor=args.target_const_donor,
+                                                      target_const_acceptor=args.target_const_acc,
+                                                      target_cryptic_donor=args.target_cryptic_donor,
+                                                      target_cryptic_acceptor=args.target_cryptic_acc,
+                                                      target_alternative_donor=args.target_const_donor,
+                                                      target_alternative_acceptor=args.target_const_acc,
+                                                      ce_score_weight=args.ce_score_weight,
+                                                      alt_score_weight=args.alt_weight,
+                                                      alt_5p=args.alt_5p,
+                                                      alt_3p=args.alt_3p)
+
+                    score = 2 - np.sum(score_contribution_array)
+                    all_scores[seq_no] = [score, score_contribution_array]
+
+                if initialise_n < args.initialisations:  # just check the first sequence
+                    if all_scores[0] < best_initial_score:
+                        best_starting_5utr = starting_5utr
+                        best_starting_intron1 = starting_intron1
+                        best_starting_intron2 = starting_intron2
+                        best_starting_3utr = starting_3utr
+                        best_starting_cds = starting_cds
+
+                else:
+                    # find the best sequence
+                    best_seq_no = max(all_scores, key=lambda k: all_scores[k][0])
+                    score = all_scores[best_seq_no][0]
+                    this_best_seq = new_seqs[best_seq_no]
+                    this_best_acceptor_prob = acceptor_probs[best_seq_no, :]  # note this is the probs across whole sequence
+                    this_best_donor_prob = donor_probs[best_seq_no, :]
+
+                    this_best_score_contribution_array = all_scores[best_seq_no][1]
+
+                    if i == 0 and args.track_splice_scores:
+                        print("writing")
+                        write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, this_best_seq,
+                                         splice_score_tracker_filename)
+
+                    if score > best_score + args.min_improvement:
+                        best_score_contribution_array = this_best_score_contribution_array
+
+                        if i > 0 and args.track_splice_scores:
+                            write_to_tracker(attempt, i, this_best_acceptor_prob, this_best_donor_prob, score, new_combined_seq,
+                                             splice_score_tracker_filename)
+                        best_score = score
+                        best_seq = this_best_seq
+                        best_donor_prob = this_best_donor_prob
+                        best_acceptor_prob = this_best_acceptor_prob
+                        bored = 0
+                        print(score)
+
+                    else:
+                        if bored > args.early_stop:
+                            break
+
+            results[attempt] = {'score': best_score, 'sequence': best_seq, 'donor': best_donor_prob,
+                                'acceptor': best_acceptor_prob}
+
+        with open(args.output, 'w') as file, open(args.output + ".predictions.csv", 'w') as file2:
+            file.write("attempt,score,seq,ce_length,ce_frameshift\n")
+            for key, value in results.items():
+                file.write(str(key) + "," + str(value["score"]) + "," + str(value["sequence"]) + "," + \
+                           str(int(args.ce_end - args.ce_start)) + "," + str((args.ce_end - args.ce_start) % 3 != 0) + "\n")
+
+            file2.write("attempt,pos,donor,acceptor\n")
+            for key, value in results.items():
+                bruv = 0
+
+                for d, a in zip(value["donor"], value["acceptor"]):
+                    file2.write(str(key) + "," + str(bruv) + "," + str(d) + "," + str(a) + "\n")
+                    bruv += 1
 
 
 def write_to_tracker(attempt, i, acceptor_prob, donor_prob, score, new_combined_seq, splice_score_tracker_filename):
