@@ -551,7 +551,7 @@ def make_score_contribution_array(transcript_structure_array, donor_probs, accep
     return score_contribution_array
 
 
-def get_args(arguments):
+def get_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("-c", "--csv", type=str, required=True,
     #                   help="A csv that contains all the sequence details")
@@ -650,7 +650,8 @@ def get_args(arguments):
     parser.add_argument('--initialisations', default=100, type=int, help='At the start, the sequence is initialised '
                                                                          'this number of times and the best starting point is selected')
 
-    args = parser.parse_args(arguments)
+    #args = parser.parse_args(arguments)
+    args = parser.parse_args()
 
     args.initial_cds = args.initial_cds.upper()
 
@@ -793,7 +794,12 @@ def main():
                                            len(starting_cds) - 1 - args.cds_mut_end_trim,
                                            pptness=make_like_ppt)
 
-            for i in range(args.n_iterations_per_attempt):
+            if initialise_n < args.initialisations:
+                i_N = 1
+            else:
+                i_N = args.n_iterations_per_attempt
+
+            for i in range(i_N):
                 bored += 1
 
                 new_seqs = []
@@ -810,7 +816,7 @@ def main():
                             best_starting_cds[args.ce_end:] + best_starting_3utr
 
                         new_seqs.append(new_combined_seq)
-                        continue  # only need to make one so break the for loop
+                        break  # only need to make one so break the for loop
 
                     if i > 0:  # mutate it
 
@@ -822,6 +828,7 @@ def main():
                                                            args.conv_window_size)
 
                         new_seqs.append(new_combined_seq)
+
 
                 acceptor_probs, donor_probs = get_probs(new_seqs, good_contexts=good_contexts, context_seqs=context_seqs,
                                                         dont_use_contexts=args.dont_use_contexts)
@@ -847,22 +854,27 @@ def main():
                     all_scores[seq_no] = [score, score_contribution_array]
 
                 if initialise_n < args.initialisations:  # just check the first sequence
-                    if all_scores[0] < best_initial_score:
+                    print('Still initisliasing!!')
+                    if all_scores[0][0] > best_initial_score:
                         best_starting_5utr = starting_5utr
                         best_starting_intron1 = starting_intron1
                         best_starting_intron2 = starting_intron2
                         best_starting_3utr = starting_3utr
                         best_starting_cds = starting_cds
+                        best_initial_score = all_scores[0][0]
+                        print(best_initial_score)
+                        break
 
-                else:
+                else:  # initialisation over - check all sequences
+                    print('OVER!!')
                     # find the best sequence
-                    best_seq_no = max(all_scores, key=lambda k: all_scores[k][0])
-                    score = all_scores[best_seq_no][0]
-                    this_best_seq = new_seqs[best_seq_no]
-                    this_best_acceptor_prob = acceptor_probs[best_seq_no, :]  # note this is the probs across whole sequence
-                    this_best_donor_prob = donor_probs[best_seq_no, :]
+                    this_best_seq_no = max(all_scores, key=lambda k: all_scores[k][0])
+                    score = all_scores[this_best_seq_no][0]
+                    this_best_seq = new_seqs[this_best_seq_no]
+                    this_best_acceptor_prob = acceptor_probs[this_best_seq_no, :]  # note this is the probs across whole sequence
+                    this_best_donor_prob = donor_probs[this_best_seq_no, :]
 
-                    this_best_score_contribution_array = all_scores[best_seq_no][1]
+                    this_best_score_contribution_array = all_scores[this_best_seq_no][1]
 
                     if i == 0 and args.track_splice_scores:
                         print("writing")
@@ -886,8 +898,9 @@ def main():
                         if bored > args.early_stop:
                             break
 
-            results[attempt] = {'score': best_score, 'sequence': best_seq, 'donor': best_donor_prob,
-                                'acceptor': best_acceptor_prob}
+            if initialise_n == args.initialisations:
+                results[attempt] = {'score': best_score, 'sequence': best_seq, 'donor': best_donor_prob,
+                                    'acceptor': best_acceptor_prob}
 
         with open(args.output, 'w') as file, open(args.output + ".predictions.csv", 'w') as file2:
             file.write("attempt,score,seq,ce_length,ce_frameshift\n")
