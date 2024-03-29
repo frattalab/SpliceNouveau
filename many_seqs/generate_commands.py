@@ -73,7 +73,7 @@ def main():
         # add a unique identifier
         unique_id = random.randint(1000000000, 9999999999)
         random_command_with_id = random_command[:-2] + str(unique_id) + '"'
-        #os.system(random_command_with_id)
+        os.system(random_command_with_id)
 
         x = 0
         while x == 0:
