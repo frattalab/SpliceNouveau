@@ -36,8 +36,12 @@ def read_csv_folder(folder_path, min_score):
         protein_name = file.split('/')[-1].split('Position')[0]
 
         df = pd.read_csv(file)
-        if df['score'].any() > min_score:
+        this_score = df['score'].iloc[0]
+        print(this_score)
+        if this_score > min_score:
             already_good_result.append(protein_name)
+        else:
+            print(df)
     print('\n\n\n\nhello')
     print(already_good_result)
     return already_good_result
