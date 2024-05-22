@@ -17,6 +17,3 @@ In each case, it attempts to alter the sequence to set the SpliceAI predictions 
 
 In theory, SpliceNouveau can be used to create constitutively-spliced vectors. However, if the user specifies an enrichment of certain motifs that bind a given splicing regulator (or are known to influence splicing in, e.g., a tissue-specific manner) near a given splice site, then SpliceNouveau can help generate alternative spliced vectors. We have used this algorithm extensively to generate vectors which undergo alternative splicing in response to loss of TDP-43 nuclear function.
 
-## Getting Started
-
-Instructions on how to install and use SpliceNouveau will be provided here.
