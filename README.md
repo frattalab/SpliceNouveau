@@ -10,6 +10,7 @@ SpliceNouveau can generate several different types of splicing events:
 - Cassette exons
 - Alternative 3' splice sites
 - Alternative 5' splice sites
+- Intron retention
 
 In each case, it attempts to alter the sequence to set the SpliceAI predictions at the defined splice sites to the user-requested level, while minimizing the presence of off-target splice sites which could cause mis-splicing.
 
