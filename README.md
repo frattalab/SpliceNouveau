@@ -18,8 +18,6 @@ In each case, it attempts to alter the sequence to set the SpliceAI predictions 
 
 In theory, SpliceNouveau can be used to create constitutively-spliced vectors. However, if the user specifies an enrichment of certain motifs that bind a given splicing regulator (or are known to influence splicing in, e.g., a tissue-specific manner) near a given splice site, then SpliceNouveau can help generate alternative spliced vectors. We have used this algorithm extensively to generate vectors which undergo alternative splicing in response to loss of TDP-43 nuclear function.
 
-Sure, here's a 'Getting Started' user guide for the `SpliceNouveau` tool:
-
 # Getting Started with SpliceNouveau
 
 SpliceNouveau is a Python algorithm designed to help users generate vectors containing introns and splice sites. It is an 'in silico directed evolution' algorithm that identifies synonymous and non-coding mutations to match the SpliceAI splicing predictions requested by the user.
