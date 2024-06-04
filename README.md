@@ -24,7 +24,7 @@ SpliceNouveau is a Python algorithm designed to help users generate vectors cont
 
 ## Prerequisites
 
-- Python 3.x
+- Python >=3.7
 - Required Python packages: `numpy`, `pandas`, `gzip`, `random`, `argparse`, `os`, `sys`, `keras`, `tensorflow`, `spliceai`
 
 ## Installation
