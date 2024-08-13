@@ -69,6 +69,8 @@ For a complete list of available arguments and their descriptions, run:
 python3 SpliceNouveau.py -h
 ```
 
+Note that the 'fitness scores' given to each sequence (for historic reasons) are 2 - sum(deviations from desired splicing). In the paper we ignore this 2 value offset to avoid confusion. Thus, a high-performing sequence is expected to have a score of close to 2 (not zero).
+
 ## Output
 
 The `SpliceNouveau` tool generates two output files:
